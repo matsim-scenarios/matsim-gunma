@@ -50,22 +50,40 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 //	private static final NumberFormat FMT = NumberFormat.getInstance(Locale.GERMAN);
 
 	private static final Logger log = LogManager.getLogger(CreateGunmaPopulation.class);
-	private final CoordinateTransformation ct = new GeotoolsTransformation("EPSG:2450", "EPSG:2450");
+	private static String columnAllAges;
+	private static String column95up;
+	private static String column85up;
+	private static String column75up;
+	private static String column65up;
+	private static String column20up;
+	private static String column18up;
+	private static String column15up;
+	private static String column0to14;
+
+	@CommandLine.Option(names = "--sex", description = "Sex: ${COMPLETION-CANDIDATES}")
+	private static Sex sex;
 	@CommandLine.Option(names = "--input", description = "Path to input csv data", required = true)
 	private Path input;
-	@CommandLine.Mixin
-	private FacilityOptions facilities = new FacilityOptions();
+//	@CommandLine.Mixin
+//	private FacilityOptions facilities = new FacilityOptions();
 	@CommandLine.Mixin
 	private ShpOptions shp = new ShpOptions();
 	@CommandLine.Option(names = "--output", description = "Path to output population", required = true)
 	private Path output;
-	@CommandLine.Option(names = "--year", description = "Year to use statistics from", defaultValue = "2019")
-	private int year;
+//	@CommandLine.Option(names = "--year", description = "Year to use statistics from", defaultValue = "2019")
+//	private int year;
 	@CommandLine.Option(names = "--sample", description = "Sample size to generate", defaultValue = "0.25")
 	private double sample;
+
+	private final CoordinateTransformation ct = new GeotoolsTransformation("EPSG:2450", "EPSG:2450");
 	private Map<String, MultiPolygon> zones;
 	private SplittableRandom rnd;
 	private Population population;
+	private final FacilityOptions facilities = null;
+
+
+
+
 
 
 	public static void main(String[] args) {
@@ -81,7 +99,7 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 		byte[] bytes = new byte[4];
 		do {
 			rnd.nextBytes(bytes);
-			id = Id.createPersonId(prefix + "_" + HexFormat.of().formatHex(bytes));
+			id = Id.createPersonId(prefix + "_" + sex.abbr + HexFormat.of().formatHex(bytes));
 
 		} while (population.getPersons().containsKey(id));
 
@@ -98,14 +116,18 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 		int i = 0;
 		Coord coord;
 		do {
-			coord = facilities.select(crs, () -> new Coord(
-				bbox.getMinX() + (bbox.getMaxX() - bbox.getMinX()) * rnd.nextDouble(),
-				bbox.getMinY() + (bbox.getMaxY() - bbox.getMinY()) * rnd.nextDouble()
-			));
-//			coord = new Coord(
-//				bbox.getMinX() + (bbox.getMaxX() - bbox.getMinX()) * rnd.nextDouble(),
-//				bbox.getMinY() + (bbox.getMaxY() - bbox.getMinY()) * rnd.nextDouble()
-//			);
+
+			if (facilities != null) {
+				coord = facilities.select(crs, () -> new Coord(
+					bbox.getMinX() + (bbox.getMaxX() - bbox.getMinX()) * rnd.nextDouble(),
+					bbox.getMinY() + (bbox.getMaxY() - bbox.getMinY()) * rnd.nextDouble()
+				));
+			} else {
+				coord = new Coord(
+					bbox.getMinX() + (bbox.getMaxX() - bbox.getMinX()) * rnd.nextDouble(),
+					bbox.getMinY() + (bbox.getMaxY() - bbox.getMinY()) * rnd.nextDouble()
+				);
+			}
 
 			i++;
 
@@ -123,29 +145,36 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 	@SuppressWarnings("IllegalCatch")
 	public Integer call() throws Exception {
 
+
+		chooseColumnCodesBasedOnSex();
+
+		// Read shapefile of zones
+		zones = new HashMap<>();
+
 		if (!shp.isDefined()) {
 			log.error("Shape file with mesh grid is required.");
 			return 2;
 		}
 
-		List<SimpleFeature> fts = shp.readFeatures();
-
-		rnd = new SplittableRandom(0);
-		zones = new HashMap<>();
-		population = PopulationUtils.createPopulation(ConfigUtils.createConfig());
-
-		// Collect all grid cells
 		String key = "KEY_CODE";
-		for (SimpleFeature ft : fts) {
-
+		for (SimpleFeature ft : shp.readFeatures()) {
 			zones.put((String) ft.getAttribute(key), (MultiPolygon) ft.getDefaultGeometry());
 		}
 
 		log.info("Found {} zones", zones.size());
 
+		// create random number generator
+		rnd = new SplittableRandom(0);
+
+		// create empty population
+		population = PopulationUtils.createPopulation(ConfigUtils.createConfig());
+
+
+		// read census csv
 		CSVFormat.Builder format = CSVFormat.DEFAULT.builder().setDelimiter(',').setHeader().setSkipHeaderRecord(true);
 
 
+		// creates age distribution per zone
 		Map<String, EnumeratedAttributeDistribution<AgeGroup>> zoneToAgeDistribution = new LinkedHashMap<>();
 
 		for (AgeGroup age : AgeGroup.values()) {
@@ -200,8 +229,9 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 			}
 		}
 
-		log.info("Generated {} persons", population.getPersons().size());
 
+		// Write Population
+		log.info("Generated {} persons", population.getPersons().size());
 		PopulationUtils.sortPersons(population);
 
 		ProjectionUtils.putCRS(population, OpenGunmaScenario.CRS);
@@ -210,26 +240,64 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 		return 0;
 	}
 
+	private static void chooseColumnCodesBasedOnSex() {
+		if (sex.equals(Sex.ALL)) {
+			columnAllAges = "T001102001";
+			column0to14 = "T001102004";
+			column15up = "T001102007";
+			column18up = "T001102013";
+			column20up = "T001102016";
+			column65up = "T001102019";
+			column75up = "T001102022";
+			column85up = "T001102025";
+			column95up = "T001102028";
+
+			throw new RuntimeException("Currently the sex distribution is commented out. Can be easily restored.");
+
+		} else if (sex.equals(Sex.MALE)) {
+			columnAllAges = "T001102002";
+			column0to14 = "T001102005";
+			column15up = "T001102008";
+			column18up = "T001102014";
+			column20up = "T001102017";
+			column65up = "T001102020";
+			column75up = "T001102023";
+			column85up = "T001102026";
+			column95up = "T001102029";
+		} else if (sex.equals(Sex.FEMALE)) {
+			columnAllAges = "T001102003";
+			column0to14 = "T001102006";
+			column15up = "T001102009";
+			column18up = "T001102015";
+			column20up = "T001102018";
+			column65up = "T001102021";
+			column75up = "T001102024";
+			column85up = "T001102027";
+			column95up = "T001102030";
+		} else {
+			throw new RuntimeException("This sex has not yet been configured");
+		}
+	}
+
 	private static EnumeratedAttributeDistribution<AgeGroup> collectAgeDistributions(CSVRecord row) {
 
 		Object2IntMap<AgeGroup> ageGroupCnt = new Object2IntAVLTreeMap<>();
 
-		int age95_up = Integer.parseInt(row.get("T001102028"));
-		int age85_up = Integer.parseInt(row.get("T001102025"));
-		int age75_up = Integer.parseInt(row.get("T001102022"));
-		int age65_up = Integer.parseInt(row.get("T001102019"));
-		int age20_up = Integer.parseInt(row.get("T001102016"));
-		int age18_up = Integer.parseInt(row.get("T001102013"));
-		int age15_up = Integer.parseInt(row.get("T001102007"));
+		int age95_up = Integer.parseInt(row.get(column95up));
+		int age85_up = Integer.parseInt(row.get(column85up));
+		int age75_up = Integer.parseInt(row.get(column75up));
+		int age65_up = Integer.parseInt(row.get(column65up));
+		int age20_up = Integer.parseInt(row.get(column20up));
+		int age18_up = Integer.parseInt(row.get(column18up));
+		int age15_up = Integer.parseInt(row.get(column15up));
 
-		int age0_14 = Integer.parseInt(row.get("T001102004"));
+		int age0_14 = Integer.parseInt(row.get(column0to14));
 		int age85_94 = age85_up - age95_up;
 		int age75_84 = age75_up - age85_up;
 		int age65_74 = age65_up - age75_up;
 		int age20_64 = age20_up - age65_up;
 		int age18_19 = age18_up - age20_up;
 		int age15_17 = age15_up - age18_up;
-
 
 
 		ageGroupCnt.put(AgeGroup.AGE_95_UP, age95_up);
@@ -273,13 +341,14 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 		String keyCode = row.get("KEY_CODE");
 
 		// Population
-		int n = Integer.parseInt(row.get("T001102001"));
 
-
-		// GENDER
-		double women = Double.parseDouble(row.get("T001102003"));
-		double quota = women / n;
-		var sex = new EnumeratedAttributeDistribution<>(Map.of("f", quota, "m", 1 - quota));
+		int n = Integer.parseInt(row.get(columnAllAges));
+//
+//
+//		// GENDER
+//		double women = Double.parseDouble(row.get("T001102003"));
+//		double quota = women / n;
+//		var sex = new EnumeratedAttributeDistribution<>(Map.of("f", quota, "m", 1 - quota));
 
 
 		// AGE
@@ -295,7 +364,6 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 		if (ageGroup == null) {
 			ageGroup = ageGroupGlobal;
 		}
-
 
 
 		// UNEMPLOYMENT
@@ -328,7 +396,7 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 
 
 			Person person = f.createPerson(generateId(population, "gunma", rnd));
-			PersonUtils.setSex(person, sex.sample());
+			PersonUtils.setSex(person, sex.abbr);
 			PopulationUtils.putSubpopulation(person, "person");
 
 			AgeGroup group = ageGroup.sample();
@@ -392,9 +460,21 @@ public class CreateGunmaPopulation implements MATSimAppCommand {
 			return maxAge;
 		}
 
-		public UniformAttributeDistribution<Integer> getDistribution(){
+		public UniformAttributeDistribution<Integer> getDistribution() {
 			return distribution;
 		}
 	}
 
+
+	enum Sex {
+		MALE("m"),
+		FEMALE("f"),
+		ALL(null);
+
+		public final String abbr;
+
+		Sex(String abbr){
+			this.abbr = abbr;
+		}
+	}
 }

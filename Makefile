@@ -10,7 +10,7 @@ MEMORY ?= 30G
 osmosis := osmosis
 
 # Scenario creation tool
-sc := java -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.prepare.RunOpenGunmaCalibration
+sc := java -Xms$(MEMORY) -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.prepare.RunOpenGunmaCalibration
 
 $(JAR):
 	mvn package
@@ -20,6 +20,7 @@ config: $p/gunma-$V-config.xml
 network: $p/gunma-$V-network.xml
 facilities: $p/gunma-$V-facilities.xml
 plans: $p/gunma-locations-$V-1pct.plans.xml.gz
+plans_exp: $p/gunma-experienced-$V-1pct.plans.xml.gz
 
 
 ### X) Prepare Zonal Shape file
@@ -53,6 +54,7 @@ $p/gunma-$V-network.xml: $(gunma)/raw/matsim_inputs_lichen_luo/NetworkRed191211f
 $p/gunma-$V-facilities.xml: $p/gunma-$V-network.xml
 	$(sc) prepare facilitiesGunma --network $< \
 	 --telfacs $(gunma)/processed/facility_locations_yellowpages.csv \
+	 --shp $(gunma)/processed/jis_zones/jis_zones.shp \
 	 --output $@
 
 ### D) POPULATION
@@ -69,13 +71,26 @@ $(gunma)/raw/shp/mesh250m/mesh250m.shp: $(gunma)/raw/shp/mesh250m/QDDSWQ5338/MES
 
 ddd: $p/gunma-static-$V-100pct.plans.xml.gz
 # 2) Generate static population plans
-# TODO WHY DOESN'T THIS USE THE FACILITIES FILE???
-$p/gunma-static-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/raw/shp/mesh250m_census/mesh250m-2450.shp input/facilities.gpkg
+#		--facilities $(word 3,$^) --facilities-attr resident\
+# input/facilities.gpkg
+$p/gunma-static-men-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/raw/shp/mesh250m_census/mesh250m-2450.shp
 	$(sc) prepare gunma-population\
 		--input $<\
 		--sample 1.0\
 		--shp $(word 2,$^) --shp-crs EPSG:4612\
-		--facilities $(word 3,$^) --facilities-attr resident\
+		--sex MALE\
+		--output $@
+
+$p/gunma-static-women-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/raw/shp/mesh250m_census/mesh250m-2450.shp
+	$(sc) prepare gunma-population\
+		--input $<\
+		--sample 1.0\
+		--shp $(word 2,$^) --shp-crs EPSG:4612\
+		--sex FEMALE\
+		--output $@
+
+$p/gunma-static-$V-100pct.plans.xml.gz:	$p/gunma-static-men-$V-100pct.plans.xml.gz  $p/gunma-static-women-$V-100pct.plans.xml.gz
+	$(sc) prepare merge-populations $^\
 		--output $@
 
 	$(sc) prepare lookup-jis-code --input $@ --output $@ --shp $(gunma)/processed/jis_zones/jis_zones.shp
@@ -129,14 +144,13 @@ $p/gunma-experienced-$V-1pct.plans.xml.gz: $p/gunma-$V-config.xml $p/gunma-locat
 	cp output/eval.output_experienced_plans.xml.gz $@
 
 
-output2/dashboard-1.yaml:
-	$(sc) prepare gunma-dashboard output2/
+output/dashboard-1.yaml:
+	$(sc) prepare gunma-dashboard output/
 #
 
 
 
 
-plans_exp: $p/gunma-experienced-$V-1pct.plans.xml.gz
 
 # SKIPPED STEPS - these are steps done in the Berlin Scenario that we do not do here:
 # Commercial Traffic
