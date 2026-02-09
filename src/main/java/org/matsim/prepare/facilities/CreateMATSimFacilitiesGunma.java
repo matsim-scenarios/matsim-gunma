@@ -5,8 +5,10 @@ import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Id;
 import org.matsim.application.MATSimAppCommand;
+import org.matsim.application.options.ShpOptions;
 import org.matsim.core.utils.geometry.CoordUtils;
 import org.matsim.facilities.*;
+import org.matsim.prepare.population.Attributes;
 import org.matsim.run.Activities;
 import picocli.CommandLine;
 import tech.tablesaw.api.BooleanColumn;
@@ -36,12 +38,30 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 	private Path telFacsPath;
 
 
+	@CommandLine.Mixin
+	private ShpOptions shp;
+
+	/** spatial index, built once. */
+	private ShpOptions.Index jisIndex;
+
+
 	public static void main(String[] args) {
 		new CreateMATSimFacilitiesGunma().execute(args);
 	}
 
 	@Override
 	public Integer call() throws Exception {
+
+		if (!shp.isDefined()) {
+			log.error("Shape file with JIS zones is required.");
+			return 2;
+		}
+
+		// Build index once
+		jisIndex = shp.createIndex(
+			shp.getShapeCrs(),
+			Attributes.JIS_ZONE_FIELD
+		);
 
 		// Random Number Generator
 		SplittableRandom rnd = new SplittableRandom();
@@ -80,7 +100,8 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 			Id<ActivityFacility> id = CreateMATSimFacilities.generateId(facilities, rnd);
 
 			// todo: consider adding link id?
-			ActivityFacility facility = f.createActivityFacility(id, CoordUtils.round(new Coord(x, y)));
+			Coord coord = CoordUtils.round(new Coord(x, y));
+			ActivityFacility facility = f.createActivityFacility(id, coord);
 
 			if (workCol.get(i)) {
 				facility.addActivityOption(aoWork);
@@ -95,9 +116,17 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 				facility.addActivityOption(aoOther);
 			}
 
+			// Add facility type
+			facility.getAttributes().putAttribute("type_en", typeCol.get(i));
+
+
+			// Lookup JIS zone
+			String jisCode = jisIndex.query(coord);
+			facility.getAttributes().putAttribute(Attributes.ZONE, jisCode);
+
+
 			facilities.addActivityFacility(facility);
 
-			facility.getAttributes().putAttribute("type_en", typeCol.get(i));
 		}
 
 		log.info("Created {} facilities, writing to {}", facilities.getFacilities().size(), output);

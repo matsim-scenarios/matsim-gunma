@@ -7,7 +7,6 @@ import org.matsim.application.MATSimAppCommand;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.simwrapper.SimWrapper;
-import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.dashboard.*;
 import picocli.CommandLine;
 
@@ -46,11 +45,14 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 			Config config = ConfigUtils.loadConfig(configPath.toString());
 			SimWrapper sw = SimWrapper.create(config);
 
-			SimWrapperConfigGroup simwrapperCfg = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
+//			SimWrapperConfigGroup simwrapperCfg = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
 
 			GunmaFacilitiesDashboard facilities = new GunmaFacilitiesDashboard();
 
-			sw.addDashboard(facilities);
+//			sw.addDashboard(facilities);
+
+			GunmaPopulationAttributeDashboard populationAttributeDashboard = new GunmaPopulationAttributeDashboard("resources/population_age_all_ref.csv", "resources/population_age_men_ref.csv", "resources/population_age_women_ref.csv");
+			sw.addDashboard(populationAttributeDashboard);
 
 			GunmaTripDashboard trips = new GunmaTripDashboard("resources/mode_share_ref.csv", "resources/mode_share_per_dist_ref.csv", "resources/mode_users_ref.csv")
 				.withDistanceDistribution("resources/mode_share_distance_distribution.csv")
