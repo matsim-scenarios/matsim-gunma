@@ -143,7 +143,7 @@ public class CommuterAssignment {
 			if (zone.distance(refPoint) > dist * 1.2)
 				continue;
 
-			ActivityFacility res = f.sample(zone);
+			ActivityFacility res = f.sampleById(key);
 
 			if (res != null) {
 				synchronized (comms) {
@@ -177,7 +177,9 @@ public class CommuterAssignment {
 	 */
 	interface Sampler {
 
-		ActivityFacility sample(Geometry zone);
+//		ActivityFacility sample(Geometry zone);
+
+		ActivityFacility sampleById(Long zoneId);
 
 	}
 

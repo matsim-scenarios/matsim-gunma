@@ -3,11 +3,10 @@ package org.matsim.prepare.population;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import me.tongfei.progressbar.ProgressBar;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.geotools.api.feature.simple.SimpleFeature;
-import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.index.strtree.STRtree;
 import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.TransportMode;
@@ -55,7 +54,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 	@CommandLine.Option(names = "--output", description = "Path to output population", required = true, defaultValue = "/Users/jakob/git/matsim-gunma/input/v1.2/gunma-locations-v1.2-1pct.plans.xml.gz")
 	private Path output;
 
-	@CommandLine.Option(names = "--k", description = "Number of choices to generate", defaultValue = "5")
+	@CommandLine.Option(names = "--k", description = "Number of choices to generate", defaultValue = "1")
 	private int k;
 
 	@CommandLine.Option(names = "--commuter", description = "Path to commuter.csv", required = true, defaultValue = "../shared-svn/projects/matsim-gunma/data/processed/work_od_matrix.csv")
@@ -67,7 +66,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 	@CommandLine.Option(names = "--network", description = "Path to network file", required = true, defaultValue = "/Users/jakob/git/matsim-gunma/input/v1.2/gunma-v1.2-network.xml")
 	private Path networkPath;
 
-	@CommandLine.Option(names = "--sample", description = "Sample size of the population", defaultValue = "0.25")
+	@CommandLine.Option(names = "--sample", description = "Sample size of the population", defaultValue = "0.01")
 	private double sample;
 
 	@CommandLine.Option(names = "--seed", description = "Seed used to sample locations", defaultValue = "1")
@@ -88,7 +87,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 
 	private AtomicLong warning = new AtomicLong();
 
-	private ProgressBar pb;
+//	private ProgressBar pb;
 
 	public static void main(String[] args) {
 		new InitLocationChoice().execute(args);
@@ -112,6 +111,9 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 			log.error("Shape file with commuter zones is required.");
 			return 2;
 		}
+
+		log.info(Runtime.getRuntime().availableProcessors() + " processors detected.");
+
 
 		// Read population for purpose of gathering zones present in population
 		Population populationTmp = PopulationUtils.readPopulation(input.toString());
@@ -158,7 +160,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 
 
 
-			pb = new ProgressBar("Performing location choice " + i, population.getPersons().size());
+//			pb = new ProgressBar("Performing location choice " + i, population.getPersons().size());
 
 			// runs "run" method in parallel
 			ParallelPersonAlgorithmUtils.run(population, Runtime.getRuntime().availableProcessors() - 1, this);
@@ -203,7 +205,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 
 		// Reference persons are not assigned locations
 		if (person.getAttributes().getAttribute(Attributes.REF_MODES) != null) {
-			pb.step();
+//			pb.step();
 			return;
 		}
 
@@ -262,7 +264,11 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 						// Try to find a facility within the bounds
 						// increase bounds if no facility is found
 						for (Double b : DoubleList.of(1, 1.2, 1.5)) {
-							List<AttributedActivityFacility> query = facilities.index.get(type).query(MGC.coord2Point(lastCoord).buffer(dist * (b + 0.2)).getEnvelopeInternal());
+							double mod = dist * (b + 0.2);
+							Envelope envelopeInternal = new Envelope(lastCoord.getX() - mod, lastCoord.getX() + mod, lastCoord.getY() - mod, lastCoord.getY() + mod);
+
+//							Envelope envelopeInternal = MGC.coord2Point(lastCoord).buffer(dist * (b + 0.2)).getEnvelopeInternal();
+							List<AttributedActivityFacility> query = facilities.index.get(type).query(envelopeInternal);
 							// Distance should be within the bounds
 							List<AttributedActivityFacility> res = query.stream().filter(f -> checkDistanceBound(dist, refCoord, f.getCoord(), b)).toList();
 
@@ -303,7 +309,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 			}
 		}
 
-		pb.step();
+//		pb.step();
 	}
 
 	/**
@@ -330,7 +336,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 		// Only larger distances can be commuters to other zones
 		// TODO: dist refers to previous activity, so we cannot be sure that this is actually the home-work distance
 		if (dist > 3000) {
-			workPlace = commuter.selectTarget(rnd, homeZone, dist, MGC.coord2Point(refCoord), zone -> sampleZone(index, dist, refCoord, zone, rnd));
+			workPlace = commuter.selectTarget(rnd, homeZone, dist, MGC.coord2Point(refCoord), zone -> sampleZoneById(index, dist, refCoord, zone, rnd));
 		}
 
 		// Within Berlin, separate data for commute is used
@@ -341,7 +347,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 		if (workPlace == null) {
 			// Try selecting within same zone
 			// TODO: same as above regarding distance
-			workPlace = sampleZone(index, dist, refCoord, (Geometry) zones.get(homeZone).getDefaultGeometry(), rnd);
+			workPlace = sampleZoneById(index, dist, refCoord, homeZone, rnd);
 		}
 
 		return workPlace;
@@ -364,25 +370,50 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 		return coord;
 	}
 
-	/**
-	 * Samples randomly from the zone.
-	 */
-	private ActivityFacility sampleZone(STRtree index, double dist, Coord refCoord, Geometry zone, SplittableRandom rnd) {
+//	/**
+//	 * Samples randomly from the zone using geometry.
+//	 */
+//	private ActivityFacility sampleZone(STRtree index, double dist, Coord refCoord, Geometry zone, SplittableRandom rnd) {
+//
+//		// gets all facilities within an envelope w/ radius = 1.2 x dist
+////		Envelope envelopeInternal = MGC.coord2Point(refCoord).buffer(dist * 1.2).getEnvelopeInternal();
+//		Envelope envelopeInternal = new Envelope(refCoord.getX() - dist * 1.2, refCoord.getX() + dist * 1.2, refCoord.getY() - dist * 1.2, refCoord.getY() + dist * 1.2);
+//		List<AttributedActivityFacility> query = index.query(envelopeInternal);
+//
+//		// filters this list to contains only facilities within a band around the distance
+//		query = query.
+//			stream().
+//			filter(f -> checkDistanceBound(dist, refCoord, f.getCoord(), 1)).
+//			// todo: is this right?
+//				filter(f -> zone.contains(MGC.coord2Point(f.getCoord()))).
+//			collect(Collectors.toList());
+//
+////		return FacilityIndex.sampleByWeightWithRejection(query, f -> zone.contains(MGC.coord2Point(f.getCoord())), AttributedActivityFacility::getWorkAttraction, rnd);
+//		return FacilityIndex.sample(query, rnd);
+//	}
 
-		// gets all facilities within circle w/ radius = 1.2 x dist
-		List<AttributedActivityFacility> query = index.query(MGC.coord2Point(refCoord).buffer(dist * 1.2).getEnvelopeInternal());
+	/**
+	 * Samples randomly from the zone using zone ID.
+	 */
+	private ActivityFacility sampleZoneById(STRtree index, double dist, Coord refCoord, Long zoneId, SplittableRandom rnd) {
+
+		// gets all facilities within an envelope w/ radius = 1.2 x dist
+//		Envelope envelopeInternal = MGC.coord2Point(refCoord).buffer(dist * 1.2).getEnvelopeInternal();
+		Envelope envelopeInternal = new Envelope(refCoord.getX() - dist * 1.2, refCoord.getX() + dist * 1.2, refCoord.getY() - dist * 1.2, refCoord.getY() + dist * 1.2);
+		List<AttributedActivityFacility> query = index.query(envelopeInternal);
 
 		// filters this list to contains only facilities within a band around the distance
 		query = query.
 			stream().
 			filter(f -> checkDistanceBound(dist, refCoord, f.getCoord(), 1)).
 			// todo: is this right?
-			filter(f -> zone.contains(MGC.coord2Point(f.getCoord()))).
+				filter(f -> Integer.parseInt(f.getZone()) == zoneId).
 			collect(Collectors.toList());
 
 //		return FacilityIndex.sampleByWeightWithRejection(query, f -> zone.contains(MGC.coord2Point(f.getCoord())), AttributedActivityFacility::getWorkAttraction, rnd);
 		return FacilityIndex.sample(query, rnd);
 	}
+
 
 	/**
 	 * General logic to filter coordinate within target distance.
