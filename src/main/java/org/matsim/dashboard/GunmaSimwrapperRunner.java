@@ -10,7 +10,6 @@ import org.matsim.core.config.ConfigUtils;
 import org.matsim.simwrapper.SimWrapper;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.dashboard.*;
-import org.matsim.simwrapper.viz.AggregateOD;
 import picocli.CommandLine;
 
 import java.io.IOException;
@@ -110,7 +109,7 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 
 			// Origins and Destinations, flows shown
 
-			GunmaAggrODDashboard aggregateODDashboardGunma = new GunmaAggrODDashboard("resources/jis_zones_50km_clip.shp", "EPSG:2450", "resources/gunma_od_sim.csv","resources/gunma_outside_od_sim.csv", "resources/gunma_outside_pref_od_sim.csv", "resources/pref_shp.shp" );
+			GunmaAggrODDashboard aggregateODDashboardGunma = new GunmaAggrODDashboard("resources/jis_zones_50km_clip.shp", "EPSG:2450", "resources/gunma_od_sim.csv", "resources/gunma_outside_od_sim.csv", "resources/gunma_outside_pref_od_sim.csv", "resources/pref_shp.shp");
 
 
 			// Traffic Counts (based on counts from MLIT)

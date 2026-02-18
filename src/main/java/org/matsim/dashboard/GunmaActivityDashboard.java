@@ -50,15 +50,19 @@ public class GunmaActivityDashboard implements Dashboard {
 	}
 
 	/**
+	 * Set the projection for the map plots. This is optional and can be used if the shape file uses a different projection than WGS84.
+	 */
+	public void setProjection(String projection){
+		this.projection = projection;
+	}
+
+	/**
 	 * Convenience method to add an activity type with default configuration.
 	 */
 	public GunmaActivityDashboard addActivityType(String name, List<String> activities, List<Indicator> indicators) {
 		return addActivityType(name, activities, indicators, true, null);
 	}
 
-	public void setProjection(String projection){
-		this.projection = projection;
-	}
 
 	/**
 	 * Add an activity type to the dashboard.
@@ -70,8 +74,8 @@ public class GunmaActivityDashboard implements Dashboard {
 	 *                                 Can be used to count home or workplaces only once.
 	 * @param refCsv                   Reference CSV file to compare the activities to. Can be null.
 	 */
-	public GunmaActivityDashboard addActivityType(String name, List<String> activities, List<Indicator> indicators,
-                                                  boolean countMultipleOccurrences, @Nullable String refCsv) {
+	public GunmaActivityDashboard addActivityType(String name, List<String> activities, List<Indicator> indicators, boolean countMultipleOccurrences, @Nullable String refCsv) {
+
 		activityMapping.put(name, String.join(",", activities));
 		refCsvs.put(name, refCsv);
 
@@ -128,139 +132,147 @@ public class GunmaActivityDashboard implements Dashboard {
 			for (Indicator ind : Indicator.values()) {
 
 				if (indicators.contains(ind)) {
-					layout.row(activity.getKey() + "_" + ind.name + "_description")
-						.el(TextBlock.class, (viz, data) -> {
-							String txt = "## **" + ind.displayName + "** \n\n";
-							if (ind == Indicator.COUNTS) {
-								txt+= "Shows the total number of activities per municipality in Gunma Prefecture. \n The reference data includes trips that begin in other prefectures but end in Gunma. So far, the simulated data only includes activities that are performed by agents whose home location is in Gunma.";
-							} else if (ind == Indicator.DENSITY) {
-								txt+= "Shows the density of activities per region (number of activities divided by area (in km2).";
-							} else if (ind == Indicator.RELATIVE_DENSITY) {
-								txt += "Shows the relative density of activities per region (density / mean(density)).";
-							}
-							viz.content = txt;
-							viz.backgroundColor = "transparent";
-						});
+					addPlotsForIndicator(layout, activity, ind, activityName, args);
+				}
+			}
+		}
+	}
 
-					Layout.Row row = layout.row(activity.getKey() + "_" + ind.name)
-						.el(MapPlot.class, (viz, data) -> {
-							viz.title = "Simulated %s Activities (%s)".formatted(activityName, ind.displayName);
-							viz.height = 8.;
-							String shp = data.resource(shpFile);
-							viz.setShape(shp, ID_COLUMN);
-							if (projection != null) {
-								viz.projection = projection;
-							}
-							viz.addDataset("activities", data.computeWithPlaceholder(ActivityCountAnalysis.class,
-								"activities_%s_per_region.csv", activity.getKey(), args.toArray(new String[0])));
-							viz.display.fill.columnName = ind.name;
-							viz.display.fill.dataset = "activities";
-							viz.display.fill.join = ID_COLUMN;
-							if (ind == Indicator.RELATIVE_DENSITY) {
-								viz.display.fill.setColorRamp(ColorScheme.RdBu, 11, false, "0.2, 0.25, 0.33, 0.5, 0.67, 1.5, 2.0, 3.0, 4.0, 5.0");
-							} else if (ind == Indicator.COUNTS) {
-								viz.display.fill.setColorRamp(ColorScheme.Viridis, 6, true, "3,30,300,3000,30000");
-							} else if (ind == Indicator.DENSITY) {
-								viz.display.fill.setColorRamp(ColorScheme.Viridis, 10, true, "100,200,300,400,500,600,700,800,900");
+	private void addPlotsForIndicator(Layout layout, Map.Entry<String, String> activity, Indicator ind, String activityName, List<String> args) {
+		addIntroductionRow(layout, activity, ind);
 
-							}
+		Layout.Row row = layout.row(activity.getKey() + "_" + ind.name)
+			.el(MapPlot.class, (viz, data) -> {
+				viz.title = "Simulated %s Activities (%s)".formatted(activityName, ind.displayName);
+				viz.height = 8.;
+				String shp = data.resource(shpFile);
+				viz.setShape(shp, ID_COLUMN);
+				if (projection != null) {
+					viz.projection = projection;
+				}
+				viz.addDataset("activities", data.computeWithPlaceholder(ActivityCountAnalysis.class,
+					"activities_%s_per_region.csv", activity.getKey(), args.toArray(new String[0])));
+				viz.display.fill.columnName = ind.name;
+				viz.display.fill.dataset = "activities";
+				viz.display.fill.join = ID_COLUMN;
+				if (ind == Indicator.RELATIVE_DENSITY) {
+					viz.display.fill.setColorRamp(ColorScheme.RdBu, 11, false, "0.2, 0.25, 0.33, 0.5, 0.67, 1.5, 2.0, 3.0, 4.0, 5.0");
+				} else if (ind == Indicator.COUNTS) {
+					viz.display.fill.setColorRamp(ColorScheme.Viridis, 6, true, "3,30,300,3000,30000");
+				} else if (ind == Indicator.DENSITY) {
+					viz.display.fill.setColorRamp(ColorScheme.Viridis, 10, true, "100,200,300,400,500,600,700,800,900");
 
-//							BackgroundLayer layer = addGunmaOutlineBackgroundLayer(data);
-//
-//							viz.addBackgroundLayer("gunma_outline", layer);
+				}
 
-							// Needs to use custom shape file
-							if (shpFile != null)
-								data.shp(ActivityCountAnalysis.class, shpFile);
-						});
+				// Needs to use custom shape file
+				if (shpFile != null)
+					data.shp(ActivityCountAnalysis.class, shpFile);
+			});
 
 
-					if (refCsvs.get(activity.getKey()) != null) {
-						row.el(MapPlot.class, (viz, data) -> {
+		if (refCsvs.get(activity.getKey()) != null) {
+			row.el(MapPlot.class, (viz, data) -> {
 
-							viz.title = "Reference %s Activities (%s)".formatted(activityName, ind.displayName);
-							viz.height = 8.;
+				viz.title = "Reference %s Activities (%s)".formatted(activityName, ind.displayName);
+				viz.height = 8.;
 
-							String shp = data.resource(shpFile);
-							viz.setShape(shp, ID_COLUMN);
-							if (projection != null) {
-								viz.projection = projection;
-							}
+				String shp = data.resource(shpFile);
+				viz.setShape(shp, ID_COLUMN);
+				if (projection != null) {
+					viz.projection = projection;
+				}
 
-							viz.addDataset("activities", data.resource(refCsvs.get(activity.getKey())));
+				viz.addDataset("activities", data.resource(refCsvs.get(activity.getKey())));
 
-							viz.display.fill.dataset = "activities";
-							viz.display.fill.join = ID_COLUMN;
+				viz.display.fill.dataset = "activities";
+				viz.display.fill.join = ID_COLUMN;
 
 //							BackgroundLayer layer = addGunmaOutlineBackgroundLayer(data);
 //							viz.addBackgroundLayer("gunma_outline", layer);
 
-							if (ind == Indicator.RELATIVE_DENSITY) {
-								viz.display.fill.columnName = "relative_density";
-								viz.display.fill.setColorRamp(ColorScheme.RdBu, 11, false, "0.2, 0.25, 0.33, 0.5, 0.67, 1.5, 2.0, 3.0, 4.0, 5.0");
-							} else if (ind == Indicator.DENSITY) {
-								viz.display.fill.columnName = "density";
-								viz.display.fill.setColorRamp(ColorScheme.Viridis, 10, true, "100,200,300,400,500,600,700,800,900");
+				if (ind == Indicator.RELATIVE_DENSITY) {
+					viz.display.fill.columnName = "relative_density";
+					viz.display.fill.setColorRamp(ColorScheme.RdBu, 11, false, "0.2, 0.25, 0.33, 0.5, 0.67, 1.5, 2.0, 3.0, 4.0, 5.0");
+				} else if (ind == Indicator.DENSITY) {
+					viz.display.fill.columnName = "density";
+					viz.display.fill.setColorRamp(ColorScheme.Viridis, 10, true, "100,200,300,400,500,600,700,800,900");
 
-							} else {
-								viz.display.fill.columnName = "count";
-								viz.display.fill.setColorRamp(ColorScheme.Viridis, 6, true, "3,30,300,3000,30000");
+				} else {
+					viz.display.fill.columnName = "count";
+					viz.display.fill.setColorRamp(ColorScheme.Viridis, 6, true, "3,30,300,3000,30000");
 
 
-							}
-						});
+				}
+			});
 
-						Layout.Row rowDiff = layout.row(activity.getKey() + "_" + ind.name + "_diff")
-							.el(MapPlot.class, (viz, data) -> {
-								viz.title = "Simulated - Ref %s Activities (%s)".formatted(activityName, ind.displayName);
-								viz.height = 8.;
-								String shp = data.resource(shpFile);
-								viz.setShape(shp, ID_COLUMN);
-								if (projection != null) {
-									viz.projection = projection;
-								}
+			addDifferencePlot(layout, activity, ind, activityName);
 
-								viz.addDataset("diff", data.computeWithPlaceholder(ActivityCountAnalysisFrontsheet.class,
-									"activities_%s_diff.csv", activity.getKey()));
+		}
+
+//					layout.tab(activityName).add("category_header_" + activity.getKey());
+		layout.tab(activityName).add("frontsheet_" + activity.getKey());
+		layout.tab(activityName).add(activity.getKey() + "_" + ind.name + "_description");
+		layout.tab(activityName).add(activity.getKey() + "_" + ind.name);
+		if (refCsvs.get(activity.getKey()) != null) {
+			layout.tab(activityName).add(activity.getKey() + "_" + ind.name + "_diff");
+		}
+	}
+
+	private void addDifferencePlot(Layout layout, Map.Entry<String, String> activity, Indicator ind, String activityName) {
+		layout.row(activity.getKey() + "_" + ind.name + "_diff")
+			.el(MapPlot.class, (viz, data) -> {
+				viz.title = "Simulated - Ref %s Activities (%s)".formatted(activityName, ind.displayName);
+				viz.height = 8.;
+				String shp = data.resource(shpFile);
+				viz.setShape(shp, ID_COLUMN);
+				if (projection != null) {
+					viz.projection = projection;
+				}
+
+				viz.addDataset("diff", data.computeWithPlaceholder(ActivityCountAnalysisFrontsheet.class,
+					"activities_%s_diff.csv", activity.getKey()));
 
 //								viz.addDataset("sim", data.computeWithPlaceholder(ActivityCountAnalysis.class,
 //									"activities_%s_per_region.csv", activity.getKey(), args.toArray(new String[0])));
 //								viz.addDataset("ref", data.resource(refCsvs.get(activity.getKey())));
 
 
-								viz.display.fill.columnName = ind.name;
-								viz.display.fill.dataset = "diff";
+				viz.display.fill.columnName = ind.name;
+				viz.display.fill.dataset = "diff";
 //								viz.display.fill.diff = "sim - ref";
-								viz.display.fill.join = ID_COLUMN;
-								if (ind == Indicator.RELATIVE_DENSITY) {
-									viz.display.fill.setColorRamp(ColorScheme.RdBu, 8, false, "-.75,-.5,-.25,0.0,.25,.5,.75");
-								} else if (ind == Indicator.COUNTS) {
-									viz.display.fill.setColorRamp(ColorScheme.RdBu, 9, true, "-100000,-10000,-1000,-100,100,1000,10000,100000");
-								} else if (ind == Indicator.DENSITY) {
-									viz.display.fill.setColorRamp(ColorScheme.RdBu, 10, true, "-100,-75,-50,-25,0,25,50,75,100");
+				viz.display.fill.join = ID_COLUMN;
+				if (ind == Indicator.RELATIVE_DENSITY) {
+					viz.display.fill.setColorRamp(ColorScheme.RdBu, 8, false, "-.75,-.5,-.25,0.0,.25,.5,.75");
+				} else if (ind == Indicator.COUNTS) {
+					viz.display.fill.setColorRamp(ColorScheme.RdBu, 9, true, "-100000,-10000,-1000,-100,100,1000,10000,100000");
+				} else if (ind == Indicator.DENSITY) {
+					viz.display.fill.setColorRamp(ColorScheme.RdBu, 10, true, "-100,-75,-50,-25,0,25,50,75,100");
 
-								}
+				}
 
 //								BackgroundLayer layer = addGunmaOutlineBackgroundLayer(data);
 //								viz.addBackgroundLayer("gunma_outline", layer);
 
-								// Needs to use custom shape file
-								if (shpFile != null)
-									data.shp(ActivityCountAnalysis.class, shpFile);
-							});
+				// Needs to use custom shape file
+				if (shpFile != null)
+					data.shp(ActivityCountAnalysis.class, shpFile);
+			});
+	}
 
-					}
-
-//					layout.tab(activityName).add("category_header_" + activity.getKey());
-					layout.tab(activityName).add("frontsheet_" + activity.getKey());
-					layout.tab(activityName).add(activity.getKey() + "_" + ind.name + "_description");
-					layout.tab(activityName).add(activity.getKey() + "_" + ind.name);
-					if (refCsvs.get(activity.getKey()) != null) {
-						layout.tab(activityName).add(activity.getKey() + "_" + ind.name + "_diff");
-					}
+	private static void addIntroductionRow(Layout layout, Map.Entry<String, String> activity, Indicator ind) {
+		layout.row(activity.getKey() + "_" + ind.name + "_description")
+			.el(TextBlock.class, (viz, data) -> {
+				String txt = "## **" + ind.displayName + "** \n\n";
+				if (ind == Indicator.COUNTS) {
+					txt+= "Shows the total number of activities per municipality in Gunma Prefecture. \n The reference data includes trips that begin in other prefectures but end in Gunma. So far, the simulated data only includes activities that are performed by agents whose home location is in Gunma.";
+				} else if (ind == Indicator.DENSITY) {
+					txt+= "Shows the density of activities per region (number of activities divided by area (in km2).";
+				} else if (ind == Indicator.RELATIVE_DENSITY) {
+					txt += "Shows the relative density of activities per region (density / mean(density)).";
 				}
-			}
-		}
+				viz.content = txt;
+				viz.backgroundColor = "transparent";
+			});
 	}
 
 	private static @NonNull BackgroundLayer addGunmaOutlineBackgroundLayer(Data data) {

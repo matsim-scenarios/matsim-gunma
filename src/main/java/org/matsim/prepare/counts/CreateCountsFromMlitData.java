@@ -1,27 +1,11 @@
 package org.matsim.prepare.counts;
 
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVParser;
-import org.apache.commons.csv.CSVRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.api.core.v01.network.Network;
 import org.matsim.application.MATSimAppCommand;
-import org.matsim.application.options.CountsOptions;
-import org.matsim.application.options.CrsOptions;
-import org.matsim.application.options.ShpOptions;
-import org.matsim.application.prepare.counts.NetworkIndex;
-import org.matsim.core.config.groups.NetworkConfigGroup;
-import org.matsim.core.network.NetworkUtils;
-import org.matsim.core.network.filter.NetworkFilterManager;
-import org.matsim.core.utils.geometry.CoordinateTransformation;
-import org.matsim.core.utils.geometry.geotools.MGC;
-import org.matsim.core.utils.geometry.transformations.TransformationFactory;
-import org.matsim.core.utils.io.IOUtils;
 import org.matsim.counts.Counts;
 import org.matsim.counts.CountsWriter;
 import org.matsim.counts.Measurable;
@@ -31,7 +15,6 @@ import tech.tablesaw.api.Row;
 import tech.tablesaw.api.Table;
 
 import java.nio.file.Path;
-import java.util.*;
 
 
 /**
@@ -47,9 +30,9 @@ import java.util.*;
  * @author hzoerner
  */
 @CommandLine.Command(name = "counts-from-mlit", description = "Creates MATSim from MLIT hourly, 24h and 12h counts.txt")
-public class CreateCountsFromMLITData implements MATSimAppCommand {
+public class CreateCountsFromMlitData implements MATSimAppCommand {
 
-	private static final Logger log = LogManager.getLogger(CreateCountsFromMLITData.class);
+	private static final Logger log = LogManager.getLogger(CreateCountsFromMlitData.class);
 //	@CommandLine.Option(names = "--road-types", description = "Define on which roads counts are created")
 //	private final List<String> roadTypes = List.of("motorway", "primary", "trunk");
 //	@CommandLine.Mixin
@@ -69,7 +52,7 @@ public class CreateCountsFromMLITData implements MATSimAppCommand {
 	private Path output;
 
 	public static void main(String[] args) {
-		new CreateCountsFromMLITData().execute(args);
+		new CreateCountsFromMlitData().execute(args);
 	}
 
 	@Override

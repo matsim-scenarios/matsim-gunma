@@ -11,6 +11,9 @@ import tech.tablesaw.api.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+/**
+ * Counts how many activities are in the population and compares to reference data. Also creates a difference table for the per-region analysis.
+ */
 @CommandSpec(
 	requires = {"activities.csv"},
 	produces = {"activities_%s_frontsheet.csv", "activities_%s_diff.csv", }
@@ -45,7 +48,8 @@ public class ActivityCountAnalysisFrontsheet implements MATSimAppCommand {
 		Path dir = output.getPath().getParent();
 
 		for (Path simFile : Files.newDirectoryStream(dir)) {
-			if(simFile.toString().endsWith("_per_region.csv")){
+			if (simFile.toString().endsWith("_per_region.csv")) {
+
 				Table simTable = Table.read().csv(simFile.toFile());
 
 				IntColumn simCol = simTable.intColumn("count");
@@ -65,8 +69,6 @@ public class ActivityCountAnalysisFrontsheet implements MATSimAppCommand {
 
 					IntColumn refCol = refTable.intColumn("count");
 					int refSum = (int) refCol.sum();
-					System.out.println("Ref Sum = " + refSum);
-					System.out.println("Sim Sum = " + simSum);
 					IntColumn refColOut = IntColumn.create("Reference");
 					refColOut.append(refSum);
 					outputTable = Table.create("outputtable", metricColOut, simColOut, refColOut);
@@ -107,7 +109,6 @@ public class ActivityCountAnalysisFrontsheet implements MATSimAppCommand {
 				String outputFileName = simFile.toString().replace("per_region", "frontsheet");
 				outputTable.write().csv(outputFileName);
 			}
-			System.out.println(simFile);
 		}
 
 

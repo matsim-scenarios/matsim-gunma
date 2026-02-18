@@ -1,11 +1,5 @@
 package org.matsim.prepare.population;
 
-import it.unimi.dsi.fastutil.objects.Object2IntAVLTreeMap;
-import it.unimi.dsi.fastutil.objects.Object2IntMap;
-import me.tongfei.progressbar.ProgressBar;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVParser;
-import org.apache.commons.csv.CSVRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.geotools.api.feature.simple.SimpleFeature;
@@ -14,13 +8,10 @@ import org.locationtech.jts.geom.MultiPolygon;
 import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.population.Person;
-import org.matsim.api.core.v01.population.Plan;
 import org.matsim.api.core.v01.population.Population;
-import org.matsim.api.core.v01.population.PopulationFactory;
 import org.matsim.application.MATSimAppCommand;
 import org.matsim.application.options.ShpOptions;
 import org.matsim.core.config.ConfigUtils;
-import org.matsim.core.population.PersonUtils;
 import org.matsim.core.population.PopulationUtils;
 import org.matsim.core.scenario.ProjectionUtils;
 import org.matsim.core.utils.geometry.CoordinateTransformation;
@@ -33,12 +24,8 @@ import tech.tablesaw.api.Row;
 import tech.tablesaw.api.Table;
 import tech.tablesaw.io.csv.CsvReadOptions;
 
-import java.nio.charset.Charset;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.text.ParseException;
 import java.util.*;
-import java.util.stream.IntStream;
 
 @CommandLine.Command(
 	name = "gunma-commuter",
@@ -164,25 +151,29 @@ public class CreateGunmaCommuterPopulation implements MATSimAppCommand {
 			}
 
 			// We are only interested in commuters TO Gunma (10xxx), not those commuting from Gunma to other prefectures, or between other prefectures.
-			if(!to.startsWith("10")){
+			if (!to.startsWith("10")) {
+
 				continue;
 			}
 
 			// We also want to exclude the rows with aggregated data, which are marked with "000" at the end of the zone code. These rows are not actual zones and would distort our population synthesis.
-			if(from.endsWith("00") || to.endsWith("00")) {
+			if (from.endsWith("00") || to.endsWith("00")) {
+
 				continue;
 			}
 
 			int commuters = row.getInt("n");
 
-			for(int i = 0; i < commuters * sample; i++) {
+			for (int i = 0; i < commuters * sample; i++) {
+
 				Person person = population.getFactory().createPerson(generateId(population, "commuter", rnd));
 				PopulationUtils.putSubpopulation(person, "commuter2gunma");
 
 
 				MultiPolygon geom = zones.get(from);
 
-				if(geom == null){
+				if (geom == null) {
+
 					log.warn("No geometry found for zone {}, skipping commuter", from);
 
 					continue;
