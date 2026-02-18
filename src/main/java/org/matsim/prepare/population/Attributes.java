@@ -26,7 +26,7 @@ public final class Attributes {
 	 * └└──── Prefecture
 	 */
 	public static final String ZONE = "zone";
-	public static final String JIS_ZONE_FIELD = "N03_007";
+	public static final String JIS_ZONE_FIELD = "id";
 
 
 	public static final String BIKE_AVAIL = "bikeAvail";
@@ -40,6 +40,7 @@ public final class Attributes {
 	public static final String REF_MODES = TripAnalysis.ATTR_REF_MODES;
 	public static final String ATTRACTION_WORK = "attraction_work";
 	public static final String ATTRACTION_OTHER = "attraction_other";
+	public static final String COMMUTE_TO = "commute_to";
 
 	private Attributes() {
 	}

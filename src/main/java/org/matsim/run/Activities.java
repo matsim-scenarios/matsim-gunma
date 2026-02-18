@@ -9,28 +9,29 @@ import org.matsim.core.config.groups.ScoringConfigGroup;
 public enum Activities {
 	// NEW ACTIVITIES FOR GUNMA -jr
 	education,
-	// OLD
 	home,
 	other,
+	work(6, 21);
+
+	// old berlin
 //	outside_recreation,
 //	transport,
-	visit,
-	edu_kiga(7, 17),
-	edu_primary(7, 17),
-	edu_secondary(7, 17),
-	edu_higher(7, 19),
-	edu_other(7, 22),
+//	visit,
+//	edu_kiga(7, 17),
+//	edu_primary(7, 17),
+//	edu_secondary(7, 17),
+//	edu_higher(7, 19),
+//	edu_other(7, 22),
 
-	work(6, 21),
-	work_business(8, 21),
-	personal_business(8, 20),
-	leisure(9, 27),
-	dining(8, 27),
-	shop_daily(8, 20),
-	shop_other(8, 20),
+//	work_business(8, 21),
+//	personal_business(8, 20),
+//	leisure(9, 27),
+//	dining(8, 27),
+//	shop_daily(8, 20),
+//	shop_other(8, 20),
 
 	// Commercial traffic types
-	service;
+//	service;
 
 	/**
 	 * Start time of an activity in hours, can be -1 if not defined.

@@ -56,12 +56,11 @@ import java.util.Set;
  */
 @CommandLine.Command(header = ":: Open Gunma Calibration ::", mixinStandardHelpOptions = true)
 @MATSimApplication.Prepare({PrepareConfig.class, GunmaSimwrapperRunner.class,
-	CreateLandUseShp.class, CreateGunmaPopulation.class, MergePopulations.class,
+	CreateLandUseShp.class, CreateGunmaPopulation.class, CreateGunmaCommuterPopulation.class, MergePopulations.class,
 	DownSamplePopulation.class,
 	CreateNetworkFromSumo.class, CreateTransitScheduleFromGtfs.class,
 	CleanNetwork.class, RunActivitySampling.class, InitLocationChoice.class,
 	CreateMATSimFacilities.class, CreateMATSimFacilitiesGunma.class, LookupJisZone.class})
-
 
 
 public class RunOpenGunmaCalibration extends MATSimApplication {
@@ -94,7 +93,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 	private Integer planIndex;
 
 	public RunOpenGunmaCalibration() {
-		super("input/v1.1/gunma-v1.1-config.xml");
+		super(ConfigUtils.loadConfig("input/v1.1/gunma-v1.1-config.xml"));
 	}
 
 	/**
@@ -180,7 +179,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 			config.transit().setUseTransit(false);
 
 			// Disable dashboards, for all car runs, these take too many resources
-			sw.setDefaultDashboards(SimWrapperConfigGroup.Mode.disabled);
+			sw.setDefaultDashboards(SimWrapperConfigGroup.DefaultDashboardsMode.disabled);
 
 			// Only car and ride will be network modes, ride is not simulated on the network though
 			config.routing().setNetworkModes(List.of(TransportMode.car, TransportMode.ride));

@@ -3,6 +3,7 @@ package org.matsim.run;
 
 import org.matsim.application.MATSimApplication;
 import org.matsim.application.options.SampleOptions;
+import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.controler.AbstractModule;
 import org.matsim.core.replanning.strategies.DefaultPlanStrategiesModule;
 
@@ -11,7 +12,7 @@ import picocli.CommandLine;
 @CommandLine.Command(header = ":: Open Gunma Scenario ::", version = OpenGunmaScenario.VERSION, mixinStandardHelpOptions = true, showDefaultValues = true)
 public class OpenGunmaScenario extends MATSimApplication {
 
-	public static final String VERSION = "1.0";
+	public static final String VERSION = "1.3";
 	public static final String CRS = "EPSG:2450";
 
 	//	To decrypt hbefa input files set MATSIM_DECRYPTION_PASSWORD as environment variable. ask VSP for access.
@@ -30,7 +31,8 @@ public class OpenGunmaScenario extends MATSimApplication {
 	private String planSelector;
 
 	public OpenGunmaScenario() {
-		super(String.format("input/v%s/berlin-v%s.config.xml", VERSION, VERSION));
+		super(ConfigUtils.loadConfig(String.format("input/v%s/berlin-v%s.config.xml", VERSION, VERSION)));
+		
 	}
 
 	public static void main(String[] args) {

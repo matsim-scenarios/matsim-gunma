@@ -66,7 +66,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 	@CommandLine.Option(names = "--network", description = "Path to network file", required = true, defaultValue = "/Users/jakob/git/matsim-gunma/input/v1.2/gunma-v1.2-network.xml")
 	private Path networkPath;
 
-	@CommandLine.Option(names = "--sample", description = "Sample size of the population", defaultValue = "0.01")
+	@CommandLine.Option(names = "--sample", description = "Sample size of the population", defaultValue = "0.25")
 	private double sample;
 
 	@CommandLine.Option(names = "--seed", description = "Seed used to sample locations", defaultValue = "1")

@@ -61,6 +61,12 @@ public class LookupJisZone implements MATSimAppCommand, PersonAlgorithm {
 
 	@Override
 	public void run(Person person) {
+
+		// if person already has a zone, skip
+		if (person.getAttributes().getAttribute(Attributes.ZONE) != null) {
+			return;
+		}
+
 		Coord homeCoord = Attributes.getHomeCoord(person);
 
 		String jisCode = jisIndex.query(homeCoord);

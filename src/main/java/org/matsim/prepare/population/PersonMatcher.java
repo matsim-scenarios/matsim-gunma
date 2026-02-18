@@ -14,7 +14,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -62,28 +61,28 @@ public class PersonMatcher implements Iterable<Map.Entry<String, CSVRecord>> {
 		return subgroup.get(rnd.nextInt(subgroup.size()));
 	}
 
-	/**
-	 * Matches a person csv entry to one person in a list.
-	 * @return null if no match was found
-	 */
-	public Person matchEntry(CSVRecord p, List<Person> refPersons, SplittableRandom rnd) {
-
-		int regionType = Integer.parseInt(p.get("region_type"));
-		String gender = p.get("gender");
-		String employment = p.get("employment");
-		int age = Integer.parseInt(p.get("age"));
-
-		Set<Key> keys = createKey(gender, age, regionType, employment).collect(Collectors.toSet());
-
-		List<Person> matched = refPersons.stream()
-			.filter(person -> keys.contains(createKey(person)))
-			.toList();
-
-		if (matched.isEmpty())
-			return null;
-
-		return matched.get(rnd.nextInt(matched.size()));
-	}
+//	/**
+//	 * Matches a person csv entry to one person in a list.
+//	 * @return null if no match was found
+//	 */
+//	public Person matchEntry(CSVRecord p, List<Person> refPersons, SplittableRandom rnd) {
+//
+//		int regionType = Integer.parseInt(p.get("region_type"));
+//		String gender = p.get("gender");
+//		String employment = p.get("employment");
+//		int age = Integer.parseInt(p.get("age"));
+//
+//		Set<Key> keys = createKey(gender, age, regionType, employment).collect(Collectors.toSet());
+//
+//		List<Person> matched = refPersons.stream()
+//			.filter(person -> keys.contains(createKey(person)))
+//			.toList();
+//
+//		if (matched.isEmpty())
+//			return null;
+//
+//		return matched.get(rnd.nextInt(matched.size()));
+//	}
 
 	/**
 	 * Return reference person with given index.
@@ -102,9 +101,11 @@ public class PersonMatcher implements Iterable<Map.Entry<String, CSVRecord>> {
 		for (CSVRecord r : csv) {
 
 			String idx = r.get(idxColumn);
-			int regionType = Integer.parseInt(r.get("region_type"));
+			String regionType = r.get("region_type");
 			String gender = r.get("gender");
-			String employment = r.get("employment");
+//			String employment = r.get("employment");
+			boolean employment = true;
+
 			int age = Integer.parseInt(r.get("age"));
 
 			Stream<Key> keys = createKey(gender, age, regionType, employment);
@@ -116,16 +117,21 @@ public class PersonMatcher implements Iterable<Map.Entry<String, CSVRecord>> {
 		log.info("Read {} persons from csv.", i);
 	}
 
-	private Stream<Key> createKey(String gender, int age, int regionType, String employment) {
+	// Adds single travel survey respondent to the keyset for multiple ages.
+	// Between 7 and 13 everyone is added to same pool
+	// between 14 and 17 everyone is added to same pool
+	// between 18 and 65, respondents are added to all pools between (age - 6, age + 6) -> 13 year range
+	// above 65, everyone is added to (age - 10, age + 10) -> 20 year range
+	private Stream<Key> createKey(String gender, int age, String regionType, Boolean employment) {
 		if (age < 7) {
-			throw new RuntimeException("shouldn't be anyone under age of 7 in this dataset");
-//			return IntStream.rangeClosed(0, 5).mapToObj(i -> new Key(gender, i, regionType, true));
+//			throw new RuntimeException("shouldn't be anyone under age of 7 in this dataset");
+			return IntStream.rangeClosed(0, 6).mapToObj(i -> new Key(gender, i, regionType, employment));
 		}
 		if (age <= 13) {
-			return IntStream.rangeClosed(7, 13).mapToObj(i -> new Key(gender, i, regionType, true));
+			return IntStream.rangeClosed(7, 13).mapToObj(i -> new Key(gender, i, regionType, employment));
 		}
 		if (age < 18) {
-			return IntStream.rangeClosed(14, 18).mapToObj(i -> new Key(gender, i, regionType, true));
+			return IntStream.rangeClosed(14, 17).mapToObj(i -> new Key(gender, i, regionType, employment));
 		}
 
 //		Boolean isEmployed = age > 65 ? null : !employment.equals("unemployed");
@@ -138,13 +144,18 @@ public class PersonMatcher implements Iterable<Map.Entry<String, CSVRecord>> {
 			max = Math.min(110, age + 10);
 		}
 
-		return IntStream.rangeClosed(min, max).mapToObj(i -> new Key(gender, i, regionType, true));
+		return IntStream.rangeClosed(min, max).mapToObj(i -> new Key(gender, i, regionType, employment));
 	}
 
 	private Key createKey(Person person) {
 
 		Integer age = PersonUtils.getAge(person);
 		String gender = PersonUtils.getSex(person);
+
+		String jisCode = (String) person.getAttributes().getAttribute(Attributes.ZONE);
+
+		// todo: this is hardcoded for Gunma!!!! Doesn't apply to other parts of Japan
+		String regionType = jisCode.startsWith("102") ? "City" : "District";
 //		if (age <= 10)
 //			gender = null;
 
@@ -154,7 +165,7 @@ public class PersonMatcher implements Iterable<Map.Entry<String, CSVRecord>> {
 //			employed = null;
 
 //		int regionType = (int) person.getAttributes().getAttribute(Attributes.RegioStaR7);
-		int regionType = -1;
+//		int regionType = -1;
 
 		// Region types have been reduced to 1 and 3
 //		if (regionType != 1)
@@ -172,7 +183,7 @@ public class PersonMatcher implements Iterable<Map.Entry<String, CSVRecord>> {
 	/**
 	 * Key used to match persons.
 	 */
-	public record Key(String gender, int age, int regionType, Boolean employed) {
+	public record Key(String gender, int age, String regionType, Boolean employed) {
 	}
 
 }

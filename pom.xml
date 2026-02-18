@@ -10,10 +10,10 @@
 
 		<!-- PR-labelled release -->
 		<!--Version used for DRT Accessibility Paper-->
-		<version>2026.0-PR3626</version>
+<!--		<version>2026.0-PR3626</version>-->
 
 		<!-- snapshot == not recommended: rather use PR-labelled release!-->
-<!--		<version>2025.0-SNAPSHOT</version>-->
+		<version>2026.0-SNAPSHOT</version>
 	</parent>
 
 	<modelVersion>4.0.0</modelVersion>
@@ -210,7 +210,8 @@
 							<goal>shade</goal>
 						</goals>
 						<configuration>
-							<outputFile>${project.basedir}/${project.build.finalName}-${git.commit.id.describe-short}.jar</outputFile>
+<!--							<outputFile>${project.basedir}/${project.build.finalName}-${git.commit.id.describe-short}.jar</outputFile>-->
+							<outputFile>${project.basedir}/${project.build.finalName}.jar</outputFile>
 							<transformers>
 								<!-- The following sets the main class for the executable jar as you otherwise would with the assembly plugin -->
 								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
