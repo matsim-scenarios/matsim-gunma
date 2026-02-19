@@ -21,7 +21,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 @CommandLine.Command(
-	name = "facilitiesGunma",
+	name = "facilities-gunma",
 	description = "Creates MATSim facilities from shape-file and network"
 )
 public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {

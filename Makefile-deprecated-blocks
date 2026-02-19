@@ -60,3 +60,61 @@
 #		--shp $(word 2,$^) --shp-crs EPSG:4612\
 #		--facilities $(word 3,$^) --facilities-attr resident\
 #		--output $@
+
+
+
+#$(gunma)/processed/01_shapefiles/jis_zones/jis_zones_quoted_ids.shp: $(gunma)/processed/jis_zones/jis_zones.shp
+#	ogr2ogr \
+#	  -dialect SQLITE \
+#	  -sql "SELECT '\"' || id || '\"' AS id, geometry FROM jis_zones" \
+#	  $@ \
+#	  $<
+
+
+# We reuse the network from Luo (20XX)
+# network currently doesn't have road types retained. Consider redoing network generation, so we can make sure no activities put by highways
+#$p/gunma-$V-network.xml: $(gunma)/raw/matsim_inputs_lichen_luo/NetworkRed191211fromJOSM_noHighway_cle_speed0.66Adjusted.xml
+#	cp $< $@
+
+
+
+#pp: $(gunma)/processed/gunma.osm.pbf
+#$(gunma)/processed/gunma.osm.pbf: $(gunma)/raw/kanto-260119.osm.pbf
+#	$(osmosis) --rb file=$< \
+# 	 --bounding-polygon file=$(gunma)/raw/shp/gunma_4326_poly/gunma_4326.poly completeWays=yes \
+#	 --used-node \
+#	 --write-pbf $@
+
+
+
+#
+#	$(SUMO_HOME)/bin/netconvert \
+#		 --osm-files $< \
+#		 --output-file $@ \
+#		 --proj "+proj=tmerc +lat_0=36 +lon_0=138.5 +k=1 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"\
+#		 --junctions.join --no-internal-links
+# --input-crs EPSG:32654
+
+
+### X) Prepare Zonal Shape file
+# add quotes around the id...
+#$(gunma)/processed/01_shapefiles/jis_zones/jis_zones.shp: $(gunma)/raw/01_shapefiles/jis_zones/N03-20_200101.shp
+#	ogr2ogr \
+#	  -t_srs EPSG:2450 \
+#	  -dialect SQLITE \
+#	  -sql "SELECT N03_007 AS id, ST_Union(geometry) AS geometry \
+#	        FROM \"N03-20_200101\" \
+#	        WHERE N03_007 IS NOT NULL AND N03_007 != '' \
+#	        GROUP BY N03_007" \
+#	  $@ \
+#	  $<
+#
+#
+#$(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_clip.shp: $(gunma)/processed/01_shapefiles/jis_zones/jis_zones.shp
+#	ogr2ogr \
+#	$@ \
+#	$< \
+#	-dialect SQLite \
+#	-sql "SELECT a.* FROM jis_zones a, 'gunma_75km_envelope'.gunma_75km_envelope b WHERE ST_Within(a.geometry, b.geometry)" \
+#	$(gunma)/processed/01_shapefiles/study_area_boundary/gunma_75km_envelope.shp
+#

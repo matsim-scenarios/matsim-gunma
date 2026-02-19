@@ -29,99 +29,55 @@ plans: $p/gunma-locations-$V-$Spct.plans.xml.gz
 plans_exp: $p/gunma-experienced-$V-$Spct.plans.xml.gz
 
 
-### X) Prepare Zonal Shape file
-# add quotes around the id...
-dhjsld : $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_50km_clip.shp
-$(gunma)/processed/01_shapefiles/jis_zones/jis_zones.shp: $(gunma)/raw/01_shapefiles/jis_zones/N03-20_200101.shp
-	ogr2ogr \
-	  -t_srs EPSG:2450 \
-	  -dialect SQLITE \
-	  -sql "SELECT N03_007 AS id, ST_Union(geometry) AS geometry \
-	        FROM \"N03-20_200101\" \
-	        WHERE N03_007 IS NOT NULL AND N03_007 != '' \
-	        GROUP BY N03_007" \
-	  $@ \
-	  $<
-
-#$(gunma)/processed/01_shapefiles/jis_zones/jis_zones_quoted_ids.shp: $(gunma)/processed/jis_zones/jis_zones.shp
-#	ogr2ogr \
-#	  -dialect SQLITE \
-#	  -sql "SELECT '\"' || id || '\"' AS id, geometry FROM jis_zones" \
-#	  $@ \
-#	  $<
-
-$(gunma)/processed/01_shapefiles/jis_zones/jis_zones_50km_clip.shp: $(gunma)/processed/01_shapefiles/jis_zones/jis_zones.shp
-	ogr2ogr \
-	$@ \
-	$< \
-	-clipsrc $(gunma)/processed/01_shapefiles/study_area_boundary/gunma_50km_envelope.shp
-
-
-### X2 Prep OSM Data
-# 2) Filter for only gunma (in EPSG:4326)
-# result looks good in QGIS
-
-xxx23 : $(gunma)/processed/gunma.osm.pbf
-
-
+###############################################################
 ### A) CONFIG
+###############################################################
+
 $p/gunma-$V-config.xml: $(gunma)/raw/matsim_inputs_lichen_luo/config_simulation.xml
 	$(sc) prepare prepare-config\
     	 --input $<\
     	 --output $@
 
-
+###############################################################
 ### B) NETWORK
-# We reuse the network from Luo (20XX)
-# TODO: network currently doesn't have road types retained. Consider redoing network generation, so we can make sure no activities put by highways
-#$p/gunma-$V-network.xml: $(gunma)/raw/matsim_inputs_lichen_luo/NetworkRed191211fromJOSM_noHighway_cle_speed0.66Adjusted.xml
-#	cp $< $@
-pp: $(gunma)/processed/gunma.osm.pbf
-$(gunma)/processed/gunma.osm.pbf: $(gunma)/raw/kanto-260119.osm.pbf
-	$(osmosis) --rb file=$< \
- 	 --bounding-polygon file=$(gunma)/raw/shp/gunma_4326_poly/gunma_4326.poly completeWays=yes \
-	 --used-node \
-	 --write-pbf $@
+###############################################################
 
 
-# wx outputs to .osm
-# wb outputs to .osm.pbf
-$p/network.osm: $(gunma)/processed/gunma.osm.pbf
+#### B1) Create OSM Network
+# A finegrained network is created within bounding box around Gunma. This is combined with a coarser network for the
+# surrounding area (75km around Gunma), to allow for trips that start or end outside of the study area. The two networks
+# are merged together
+# Railways are removed; I'm not sure why these would be here in the first place
+# Inputs:
+# - japan-260210.osm.pbf is downloaded from geofabrik.
+# - The .poly files required for osmosis are created in the R script (process_census.R). They can also be made in QGIS.
+# Note: --wx creates a .osm output while --wb creates an .osm.pbf file
+$p/network.osm: $(gunma)/raw/01_shapefiles/osm_pbf_geofabrik/japan-260210.osm.pbf
 
 	# Detailed network includes bikes as well
 	$(osmosis) --rb file=$<\
 	 --tf accept-ways bicycle=designated highway=motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary_link,secondary,tertiary,motorway_junction,residential,living_street,unclassified,cycleway\
-	 --used-node --wx $@
-#	 --used-node --wb input/network-detailed.osm.pbf
-#	 --bounding-polygon file="$p/area/area.poly"\
+	 --bounding-polygon file=$(gunma)/processed/01_shapefiles/study_area_boundary/gunma_00km_envelope.poly \
+	 --used-node --wb input/network-detailed.osm.pbf
 
-#	$(osmosis) --rb file=$<\
-#	 --tf accept-ways highway=motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary_link,secondary,tertiary,motorway_junction\
-#	 --used-node --wb input/network-coarse.osm.pbf
-#
-#	$(osmosis) --rb file=input/network-coarse.osm.pbf --rb file=input/network-detailed.osm.pbf\
-#  	 --merge\
-#  	 --tag-transform file=input/remove-railway.xml\
-#  	 --wx $@
+	$(osmosis) --rb file=$<\
+	 --tf accept-ways highway=motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary_link,secondary,tertiary,motorway_junction\
+	 --bounding-polygon file=$(gunma)/processed/01_shapefiles/study_area_boundary/gunma_75km_envelope.poly \
+	 --used-node --wb input/network-coarse.osm.pbf
 
-#	rm input/network-detailed.osm.pbf
-#	rm input/network-coarse.osm.pbf
+	$(osmosis) --rb file=input/network-coarse.osm.pbf --rb file=input/network-detailed.osm.pbf\
+  	 --merge\
+  	 --tag-transform file=input/remove-railway.xml\
+  	 --wx $@
 
-# - changed zone to 54 because gunma is in zone UTM zone 54 (removed +ellps=GRS80
-#	 --proj "+proj=utm +zone=54 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"\
-#	 --proj "+proj=utm +zone=54 +datum=WGS84 +units=m +no_defs"\
-#	 --proj "+proj=utm +zone=54 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"\
-#		 --net-offset auto \
+	rm input/network-detailed.osm.pbf
+	rm input/network-coarse.osm.pbf
 
 
-ddddd : $p/gunma-$V-network.xml.gz
-
-
-eeeee: $p/sumo.net.xml
-		 --#proj "+proj=utm +zone=54 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" \
-
-#	 --osm.extra-attributes smoothness,surface,crossing,tunnel,traffic_sign,bus:lanes,bus:lanes:forward,bus:lanes:backward,cycleway,cycleway:right,cycleway:left,bicycle\
-
+### B2) Create SUMO Network
+# Uses netconvert to create a SUMO network from the OSM file. We use the same parameters as in the Berlin scenario
+# We also reproject the network to a local coordinate system (EPSG:2450),
+# We also keep all attributes from OSM, which we will use later for filtering and for the location choice model.
 $p/sumo.net.xml: $p/network.osm
 	$(SUMO_HOME)/bin/netconvert --geometry.remove --ramps.guess --ramps.no-split\
 	 --type-files $(SUMO_HOME)/data/typemap/osmNetconvert.typ.xml\
@@ -137,16 +93,9 @@ $p/sumo.net.xml: $p/network.osm
 	 --proj "+proj=tmerc +lat_0=36 +lon_0=138.5 +k=1 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"\
 	 --osm-files $< -o=$@
 
-#
-#	$(SUMO_HOME)/bin/netconvert \
-#		 --osm-files $< \
-#		 --output-file $@ \
-#		 --proj "+proj=tmerc +lat_0=36 +lon_0=138.5 +k=1 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"\
-#		 --junctions.join --no-internal-links
-# --input-crs EPSG:32654
 
 
-
+### B2) Create MATSim Network
 $p/gunma-$V-network.xml: $p/sumo.net.xml
 	$(sc) prepare network-from-sumo $< --target-crs EPSG:2450 --lane-restrictions REDUCE_CAR_LANES --output $@
 
@@ -172,14 +121,21 @@ $p/gunma-$V-network.xml: $p/sumo.net.xml
 #	  --decrease-only
 
 
+###############################################################
 ### C) FACILITIES
+###############################################################
+
+
 $p/gunma-$V-facilities.xml: $p/gunma-$V-network.xml
-	$(sc) prepare facilitiesGunma --network $< \
+	$(sc) prepare facilities-gunma --network $< \
 	 --telfacs $(gunma)/processed/facility_locations_yellowpages.csv \
 	 --shp $(gunma)/processed/jis_zones/jis_zones.shp \
 	 --output $@
 
+###############################################################
 ### D) POPULATION
+###############################################################
+
 # 1) Merge Shapefiles for census data
 $(gunma)/raw/shp/mesh250m/mesh250m.shp: $(gunma)/raw/shp/mesh250m/QDDSWQ5338/MESH05338.shp $(gunma)/raw/shp/mesh250m/QDDSWQ5438/MESH05438.shp $(gunma)/raw/shp/mesh250m/QDDSWQ5439/MESH05439.shp $(gunma)/raw/shp/mesh250m/QDDSWQ5538/MESH05538.shp $(gunma)/raw/shp/mesh250m/QDDSWQ5539/MESH05539.shp
 	ogr2ogr $@ $(word 1,$^) -nln mesh250m
@@ -299,3 +255,4 @@ output/dashboard-1.yaml:
 # prepare merge-plans -->  "This file requires eval runs" ??? What does that mean?
 
 # Chose Plan to match the traffic counts...
+
