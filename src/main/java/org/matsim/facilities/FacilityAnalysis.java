@@ -12,13 +12,18 @@ import org.geotools.referencing.CRS;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.Point;
+import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.Scenario;
+import org.matsim.api.core.v01.population.Activity;
+import org.matsim.api.core.v01.population.Person;
 import org.matsim.application.ApplicationUtils;
 import org.matsim.application.CommandSpec;
 import org.matsim.application.MATSimAppCommand;
 import org.matsim.application.options.InputOptions;
 import org.matsim.application.options.OutputOptions;
 import org.matsim.core.config.ConfigUtils;
+import org.matsim.core.population.io.PopulationReader;
+import org.matsim.core.router.TripStructureUtils;
 import org.matsim.core.scenario.ScenarioUtils;
 import org.matsim.core.utils.gis.GeoFileWriter;
 import org.matsim.run.Activities;
@@ -82,17 +87,43 @@ public class FacilityAnalysis implements MATSimAppCommand {
 		Collection<SimpleFeature> features = new ArrayList<>();
 
 
+		Scenario scenario = ScenarioUtils.createScenario(ConfigUtils.createConfig());
+
+		// read population file
+		String populationFile = ApplicationUtils.matchInput("output_plans.xml.gz", input.getRunDirectory()).toString();
+		new PopulationReader(scenario).readFile(populationFile);
+
+
+
 		// read facilities file
 
 //		String facilitiesFile = "/Users/jakob/git/matsim-gunma/input/v1.2/gunma-v1.2-facilities.xml";
 		String facilitiesFile = ApplicationUtils.matchInput("output_facilities.xml.gz", input.getRunDirectory()).toString();
-		Scenario scenario = ScenarioUtils.createScenario(ConfigUtils.createConfig());
 		new MatsimFacilitiesReader(scenario).readFile(facilitiesFile);
 
 
+		// loop thru population and gather all relevant facilities:
+		Set<Id<ActivityFacility>> relevantFacilities = new HashSet<>();
+
+		for (Person person : scenario.getPopulation().getPersons().values()) {
+			for (Activity activity : TripStructureUtils.getActivities(person.getSelectedPlan(), TripStructureUtils.StageActivityHandling.ExcludeStageActivities)) {
+				if (!activity.getType().equals(Activities.home.name())) {
+					relevantFacilities.add(activity.getFacilityId());
+				}
+			}
+		}
+
 		// loop through facilities
 		GeometryFactory geometryFactory = new GeometryFactory();
-		for (ActivityFacility facility : scenario.getActivityFacilities().getFacilities().values()) {
+//		for (ActivityFacility facility : scenario.getActivityFacilities().getFacilities().values()) {
+		for (Id<ActivityFacility> facilityId : relevantFacilities) {
+
+
+			ActivityFacility facility = scenario.getActivityFacilities().getFacilities().get(facilityId);
+
+			if (facility == null) {
+				continue;
+			}
 
 			Point point = geometryFactory.createPoint(new Coordinate(facility.getCoord().getX(), facility.getCoord().getY()));
 			Point wgs84Point = (Point) JTS.transform(point, transform);

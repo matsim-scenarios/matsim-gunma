@@ -3,6 +3,7 @@ package org.matsim.prepare.config;
 import org.matsim.application.MATSimAppCommand;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
+import org.matsim.core.config.groups.ControllerConfigGroup;
 import org.matsim.run.OpenGunmaScenario;
 import picocli.CommandLine;
 
@@ -31,6 +32,7 @@ public class PrepareConfig implements MATSimAppCommand {
 
 		// global settings
 		config.global().setCoordinateSystem(OpenGunmaScenario.CRS);
+		config.controller().setCompressionType(ControllerConfigGroup.CompressionType.gzip);
 
 		// input files
 		config.network().setInputFile(output.getFileName().toString().replace("config", "network"));

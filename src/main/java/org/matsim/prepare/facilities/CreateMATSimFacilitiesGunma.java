@@ -5,16 +5,12 @@ import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Id;
 import org.matsim.application.MATSimAppCommand;
-import org.matsim.application.options.ShpOptions;
 import org.matsim.core.utils.geometry.CoordUtils;
 import org.matsim.facilities.*;
 import org.matsim.prepare.population.Attributes;
 import org.matsim.run.Activities;
 import picocli.CommandLine;
-import tech.tablesaw.api.BooleanColumn;
-import tech.tablesaw.api.DoubleColumn;
-import tech.tablesaw.api.StringColumn;
-import tech.tablesaw.api.Table;
+import tech.tablesaw.api.*;
 import tech.tablesaw.io.csv.CsvReadOptions;
 
 import java.nio.file.Path;
@@ -38,11 +34,11 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 	private Path telFacsPath;
 
 
-	@CommandLine.Mixin
-	private ShpOptions shp;
-
-	/** spatial index, built once. */
-	private ShpOptions.Index jisIndex;
+//	@CommandLine.Mixin
+//	private ShpOptions shp;
+//
+//	/** spatial index, built once. */
+//	private ShpOptions.Index jisIndex;
 
 
 	public static void main(String[] args) {
@@ -52,16 +48,16 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 	@Override
 	public Integer call() throws Exception {
 
-		if (!shp.isDefined()) {
-			log.error("Shape file with JIS zones is required.");
-			return 2;
-		}
-
-		// Build index once
-		jisIndex = shp.createIndex(
-			shp.getShapeCrs(),
-			Attributes.JIS_ZONE_FIELD
-		);
+//		if (!shp.isDefined()) {
+//			log.error("Shape file with JIS zones is required.");
+//			return 2;
+//		}
+//
+//		// Build index once
+//		jisIndex = shp.createIndex(
+//			shp.getShapeCrs(),
+//			Attributes.JIS_ZONE_FIELD
+//		);
 
 		// Random Number Generator
 		SplittableRandom rnd = new SplittableRandom();
@@ -79,12 +75,13 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 
 		// Read Coordinate Table from Telephone Book
 		Table table = Table.read().usingOptions(
-			CsvReadOptions.builder(telFacsPath.toFile())
+			CsvReadOptions.builder(telFacsPath.toFile()).columnTypesPartial(Map.of("zone", ColumnType.STRING))
 				.build()
 		);
 
 		DoubleColumn xCol = table.doubleColumn("x");
 		DoubleColumn yCol = table.doubleColumn("y");
+		StringColumn zoneColumn = table.stringColumn("zone");
 		BooleanColumn workCol = table.booleanColumn(Activities.work.name());
 		BooleanColumn eduCol = table.booleanColumn(Activities.education.name());
 		BooleanColumn otherCol = table.booleanColumn(Activities.other.name());
@@ -96,6 +93,7 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 		for (int i = 0; i < table.rowCount(); i++) {
 			double x = xCol.get(i);
 			double y = yCol.get(i);
+			String zone = zoneColumn.get(i);
 
 			Id<ActivityFacility> id = CreateMATSimFacilities.generateId(facilities, rnd);
 
@@ -121,8 +119,8 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 
 
 			// Lookup JIS zone
-			String jisCode = jisIndex.query(coord);
-			facility.getAttributes().putAttribute(Attributes.ZONE, jisCode);
+//			String jisCode = jisIndex.query(coord);
+			facility.getAttributes().putAttribute(Attributes.ZONE, zone);
 
 
 			facilities.addActivityFacility(facility);

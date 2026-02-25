@@ -7,6 +7,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Id;
+import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.population.*;
 import org.matsim.application.MATSimAppCommand;
 import org.matsim.core.population.PersonUtils;
@@ -15,6 +16,7 @@ import org.matsim.core.population.algorithms.ParallelPersonAlgorithmUtils;
 import org.matsim.core.population.algorithms.PersonAlgorithm;
 import org.matsim.core.router.TripStructureUtils;
 import org.matsim.prepare.RunOpenGunmaCalibration;
+import org.matsim.run.Activities;
 import picocli.CommandLine;
 
 import java.io.IOException;
@@ -182,6 +184,77 @@ public final class RunActivitySampling implements MATSimAppCommand, PersonAlgori
 	}
 
 	/**
+	 * Create daily plan from a list of entries.
+	 */
+	public static Plan createCommuter(Coord homeCoord, SplittableRandom rnd, PopulationFactory factory) {
+		Plan plan = factory.createPlan();
+
+
+		double timeSelectorHome = rnd.nextDouble();
+		double homeEndTime;
+		if (timeSelectorHome < 0.1) {
+			homeEndTime = 6 * 60 * 60 + rnd.nextInt(0, 60) * 60;
+		} else if (timeSelectorHome < 0.6) {
+			homeEndTime = 7 * 60 * 60 + rnd.nextInt(0, 60) * 60;
+		} else if (timeSelectorHome < 0.85) {
+			homeEndTime = 8 * 60 * 60 + rnd.nextInt(0, 60) * 60;
+		} else {
+			homeEndTime = 9 * 60 * 60 + rnd.nextInt(0, 60) * 60;
+		}
+
+
+		double timeSelectorWork = rnd.nextDouble();
+		double workEndTime;
+		if (timeSelectorWork < 0.1) {
+			workEndTime = 15 * 60 * 60 + rnd.nextInt(0, 60) * 60;
+		} else if (timeSelectorWork < 0.3) {
+			workEndTime = 16 * 60 * 60 + rnd.nextInt(0, 60) * 60;
+		} else if (timeSelectorWork < 0.6) {
+			workEndTime = 17 * 60 * 60 + rnd.nextInt(0, 60) * 60;
+		} else if (timeSelectorWork < 0.9) {
+			workEndTime = 18 * 60 * 60 + rnd.nextInt(0, 60) * 60;
+		} else {
+			workEndTime = 19 * 60 * 60 + rnd.nextInt(0, 60) * 60;
+		}
+
+
+
+
+		// Home Activity
+		Activity homeAct = factory.createActivityFromCoord(Activities.home.name(), homeCoord);
+
+		homeAct.setEndTime(homeEndTime);
+
+		plan.addActivity(homeAct);
+
+		// Leg to Work
+
+		Leg toWork = factory.createLeg(TransportMode.car);
+		toWork.setDepartureTime(homeEndTime);
+		plan.addLeg(toWork);
+
+		// Work Activity
+		Activity workAct = factory.createActivityFromLinkId(Activities.work.name(), Id.createLinkId("unassigned"));
+		workAct.setStartTimeUndefined();
+		workAct.setEndTime(workEndTime);
+		plan.addActivity(workAct);
+
+
+		// Leg to Home
+		Leg toHome = factory.createLeg(TransportMode.car);
+		toHome.setDepartureTime(workEndTime);
+		plan.addLeg(toHome);
+
+		// Home 2
+		Activity homeAct2 = factory.createActivityFromCoord(Activities.home.name(), homeCoord);
+		homeAct2.setStartTimeUndefined();
+		plan.addActivity(homeAct2);
+
+		return plan;
+	}
+
+
+	/**
 	 * Read and group activities by person id.
 	 */
 	public static Map<String, List<CSVRecord>> readActivities(Path csv) throws IOException {
@@ -269,12 +342,24 @@ public final class RunActivitySampling implements MATSimAppCommand, PersonAlgori
 	@Override
 	public void run(Person person) {
 
+
+		SplittableRandom rnd = initRandomNumberGenerator(person);
+
+		if (person.getId().toString().startsWith("commuter")) {
+			Plan commuterPlan = createCommuter(Attributes.getHomeCoord(person), rnd, factory);
+			person.addPlan(commuterPlan);
+			person.setSelectedPlan(commuterPlan);
+
+			return;
+		}
+
 		// Since our travel survey doesn't include any children under the age of 7, we will assume they are immobile for now
 		if (PersonUtils.getAge(person) < 7) {
 			return;
 		}
 
-		SplittableRandom rnd = initRandomNumberGenerator(person);
+
+
 
 		String idx = matcher.matchPerson(person, rnd);
 		CSVRecord row = matcher.getPerson(idx);

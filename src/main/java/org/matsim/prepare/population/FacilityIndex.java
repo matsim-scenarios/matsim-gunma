@@ -5,6 +5,7 @@ import org.apache.logging.log4j.Logger;
 import org.locationtech.jts.index.strtree.STRtree;
 import org.matsim.api.core.v01.Id;
 import org.matsim.core.utils.geometry.geotools.MGC;
+import org.matsim.dsim.Activities;
 import org.matsim.facilities.ActivityFacilities;
 import org.matsim.facilities.ActivityFacility;
 import org.matsim.facilities.FacilitiesUtils;
@@ -14,7 +15,8 @@ import org.matsim.prepare.facilities.AttributedActivityFacility;
 import java.util.*;
 import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
+
+import static java.util.stream.Collectors.*;
 
 /**
  * Spatial index for facilities.
@@ -27,6 +29,7 @@ public final class FacilityIndex {
 	 */
 	public final Map<String, STRtree> index = new HashMap<>();
 	final ActivityFacilities all = FacilitiesUtils.createActivityFacilities();
+	private final Map<String, List<ActivityFacility>> workFacilitiesByZone;
 
 	public FacilityIndex(String facilityPath, String crs) {
 		this(facilityPath, f -> true, crs);
@@ -44,7 +47,7 @@ public final class FacilityIndex {
 		Set<String> activities = all.getFacilities().values().stream()
 			.filter(f)
 			.flatMap(a -> a.getActivityOptions().keySet().stream())
-			.collect(Collectors.toSet());
+			.collect(toSet());
 
 		log.info("Found activity types: {}", activities);
 
@@ -59,7 +62,18 @@ public final class FacilityIndex {
 
 		// Build all trees
 		index.values().forEach(STRtree::build);
+
+		Map<Id<ActivityFacility>, ActivityFacility> workFacilities = all.getFacilitiesForActivityType(Activities.work.name());
+
+		workFacilitiesByZone = workFacilities.values().stream()
+				.collect(groupingBy(
+					fac -> (String) fac.getAttributes().getAttribute(Attributes.ZONE),
+					TreeMap::new,
+					toList()
+				));
+
 	}
+
 
 	/**
 	 * Sample facility weighted by specific attribute.
@@ -161,7 +175,7 @@ public final class FacilityIndex {
 		// Entries which produce a null key are discarded
 		Map<String, List<AttributedActivityFacility>> map = candidates.stream()
 			.filter(af -> classifier.apply(af) != null)
-			.collect(Collectors.groupingBy(classifier));
+			.collect(groupingBy(classifier));
 
 		List<Map.Entry<String, List<AttributedActivityFacility>>> grouped = map.entrySet().stream().toList();
 
@@ -220,7 +234,7 @@ public final class FacilityIndex {
 			return null;
 
 		Map<String, List<AttributedActivityFacility>> map = candidates.stream()
-			.collect(Collectors.groupingBy(classifier));
+			.collect(groupingBy(classifier));
 
 		List<Map.Entry<String, List<AttributedActivityFacility>>> grouped = map.entrySet().stream().toList();
 
@@ -251,5 +265,11 @@ public final class FacilityIndex {
 		// Sample random facility from the zone
 		return list.get(rnd.nextInt(list.size()));
 	}
+
+
+	public List<ActivityFacility> getWorkFacilitiesForZone(String zone){
+		return workFacilitiesByZone.get(zone);
+	}
+
 
 }

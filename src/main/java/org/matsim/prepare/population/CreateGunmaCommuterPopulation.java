@@ -144,6 +144,7 @@ public class CreateGunmaCommuterPopulation implements MATSimAppCommand {
 		for (Row row : t) {
 			String from = row.getString("from");
 			String to = row.getString("to");
+			int commuters = row.getInt("n_scaled");
 
 			// For this population, we don't want anyone living in Gunma
 			if (from.startsWith("10")) {
@@ -155,14 +156,13 @@ public class CreateGunmaCommuterPopulation implements MATSimAppCommand {
 
 				continue;
 			}
+// Solved in preprocessing
+//			// We also want to exclude the rows with aggregated data, which are marked with "000" at the end of the zone code. These rows are not actual zones and would distort our population synthesis.
+//			if (from.endsWith("00") || to.endsWith("00")) {
+//
+//				continue;
+//			}
 
-			// We also want to exclude the rows with aggregated data, which are marked with "000" at the end of the zone code. These rows are not actual zones and would distort our population synthesis.
-			if (from.endsWith("00") || to.endsWith("00")) {
-
-				continue;
-			}
-
-			int commuters = row.getInt("n");
 
 			for (int i = 0; i < commuters * sample; i++) {
 
@@ -174,9 +174,9 @@ public class CreateGunmaCommuterPopulation implements MATSimAppCommand {
 
 				if (geom == null) {
 
-					log.warn("No geometry found for zone {}, skipping commuter", from);
+					throw new RuntimeException("No geometry found for zone" + from);
 
-					continue;
+//					continue;
 				}
 				Coord coord = ct.transform(sampleHomeCoordinate(geom, OpenGunmaScenario.CRS, facilities, rnd, 1500));
 				person.getAttributes().putAttribute(Attributes.HOME_X, coord.getX());

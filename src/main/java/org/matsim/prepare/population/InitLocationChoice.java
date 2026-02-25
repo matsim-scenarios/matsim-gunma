@@ -29,6 +29,7 @@ import org.matsim.core.utils.geometry.geotools.MGC;
 import org.matsim.facilities.ActivityFacility;
 import org.matsim.prepare.RunOpenGunmaCalibration;
 import org.matsim.prepare.facilities.AttributedActivityFacility;
+import org.matsim.run.Activities;
 import org.matsim.run.OpenGunmaScenario;
 import picocli.CommandLine;
 
@@ -152,8 +153,6 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 
 			// read population & gather set of zones present in population
 			Population population = PopulationUtils.readPopulation(input.toString());
-//			Set<Long> filteredZones = population.getPersons().values().stream().map(p -> Long.parseLong((String) p.getAttributes().getAttribute(Attributes.ZONE))).collect(Collectors.toSet());
-
 
 			// initialize commuter assignment: gathers OD matrix from file
 			commuter = new CommuterAssignment(zones, commuterPath, sample, filteredZones);
@@ -200,8 +199,16 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 	@Override
 	public void run(Person person) {
 
+		// First, we deal with the commuters to Gunma
+		if (person.getId().toString().startsWith("commuter")) {
+			setWorkLocationForCommuter(person);
+			return;
+		}
+
+
+
 		Coord homeCoord = Attributes.getHomeCoord(person);
-		long jisZone = Long.parseLong((String) person.getAttributes().getAttribute(Attributes.ZONE));
+		long homeZone = Long.parseLong((String) person.getAttributes().getAttribute(Attributes.ZONE));
 
 		// Reference persons are not assigned locations
 		if (person.getAttributes().getAttribute(Attributes.REF_MODES) != null) {
@@ -253,7 +260,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 					// Special handling for work activities: sample commute based on OD matrix
 					if (location == null && type.equals("work")) {
 						// sample work commute
-						location = sampleCommute(rnd, dist, lastCoord, jisZone);
+						location = sampleCommute(rnd, dist, lastCoord, homeZone);
 					}
 
 					if (location == null && facilities.index.containsKey(type)) {
@@ -310,6 +317,24 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 		}
 
 //		pb.step();
+	}
+
+	private void setWorkLocationForCommuter(Person person) {
+		SplittableRandom rnd = initRandomNumberGenerator(person, 1);
+
+		String workZone = (String) person.getAttributes().getAttribute("commute_to");
+		List<Activity> activities = TripStructureUtils.getActivities(person.getSelectedPlan(), TripStructureUtils.StageActivityHandling.ExcludeStageActivities);
+		for (Activity activity : activities) {
+			if (activity.getType().equals(Activities.work.name())) {
+				assert Attributes.isLinkUnassigned(activity.getLinkId());
+				List<ActivityFacility> workFacilitiesForZone = facilities.getWorkFacilitiesForZone(workZone);
+//					ActivityFacility workFacility = FacilityIndex.sample(workFacilitiesForZone, rnd);
+				int idx = rnd.nextInt(workFacilitiesForZone.size());
+				ActivityFacility workFacility = workFacilitiesForZone.get(idx);
+				activity.setFacilityId(workFacility.getId());
+			}
+
+		}
 	}
 
 	/**

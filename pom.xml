@@ -55,6 +55,16 @@
 			<groupId>org.matsim.contrib</groupId>
 			<artifactId>application</artifactId>
 			<version>${matsim.version}</version>
+			<exclusions>
+				<exclusion>
+					<groupId>xerces</groupId>
+					<artifactId>xercesImpl</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>xml-apis</groupId>
+					<artifactId>xml-apis</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 		<dependency>
 			<groupId>org.matsim.contrib</groupId>
@@ -66,9 +76,20 @@
 			<artifactId>accessibility</artifactId>
 			<version>${matsim.version}</version>
 		</dependency>
+		<dependency>
+			<groupId>org.matsim.contrib</groupId>
+			<artifactId>cadyts-integration</artifactId>
+			<version>${matsim.version}</version>
+			<scope>compile</scope>
+		</dependency>
 
 
 		<!-- Custom dependencies -->
+		<dependency>
+			<groupId>org.optaplanner</groupId>
+			<artifactId>optaplanner-core</artifactId>
+			<version>9.44.0.Final</version>
+		</dependency>
 
 
 		<!-- Include the JUnit testing library.  Not transitive. -->
@@ -118,7 +139,8 @@
 			<artifactId>osm4j-geometry</artifactId>
 			<version>1.4.1</version>
 		</dependency>
-<!--        <dependency>-->
+
+        <!--        <dependency>-->
 <!--            <groupId>org.matsim.contrib</groupId>-->
 <!--            <artifactId>bicycle</artifactId>-->
 <!--            <version>2026.0-PR4282</version>-->

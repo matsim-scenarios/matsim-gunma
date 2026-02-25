@@ -73,7 +73,7 @@ public class CommuterAssignment {
 					}
 				}
 
-				String n = row.get("n");
+				String n = row.get("n_scaled");
 				commuter.computeIfAbsent(from, k -> Long2DoubleMaps.synchronize(new Long2DoubleOpenHashMap()))
 					.mergeDouble(to, Integer.parseInt(n), Double::sum);
 
