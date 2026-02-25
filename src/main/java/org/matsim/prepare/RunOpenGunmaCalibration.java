@@ -1,11 +1,14 @@
 package org.matsim.prepare;
 
+import com.google.inject.Inject;
+import com.google.inject.TypeLiteral;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Scenario;
 
 import org.matsim.api.core.v01.TransportMode;
+import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.population.*;
 import org.matsim.application.MATSimAppCommand;
 import org.matsim.application.MATSimApplication;
@@ -15,6 +18,9 @@ import org.matsim.application.prepare.network.CleanNetwork;
 import org.matsim.application.prepare.network.CreateNetworkFromSumo;
 import org.matsim.application.prepare.population.*;
 import org.matsim.application.prepare.pt.CreateTransitScheduleFromGtfs;
+import org.matsim.contrib.cadyts.car.CadytsCarModule;
+import org.matsim.contrib.cadyts.car.CadytsContext;
+import org.matsim.contrib.cadyts.general.CadytsScoring;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.config.groups.ReplanningConfigGroup;
@@ -26,15 +32,23 @@ import org.matsim.core.controler.OutputDirectoryHierarchy;
 import org.matsim.core.population.PopulationUtils;
 import org.matsim.core.population.routes.NetworkRoute;
 import org.matsim.core.population.routes.mediumcompressed.MediumCompressedNetworkRouteFactory;
+import org.matsim.core.replanning.choosers.ForceInnovationStrategyChooser;
+import org.matsim.core.replanning.choosers.StrategyChooser;
 import org.matsim.core.replanning.strategies.DefaultPlanStrategiesModule;
 import org.matsim.core.router.DefaultAnalysisMainModeIdentifier;
 import org.matsim.core.router.MainModeIdentifier;
 import org.matsim.core.router.TripStructureUtils;
+import org.matsim.core.scoring.ScoringFunction;
+import org.matsim.core.scoring.ScoringFunctionFactory;
+import org.matsim.core.scoring.SumScoringFunction;
+import org.matsim.core.scoring.functions.ScoringParametersForPerson;
 import org.matsim.core.utils.geometry.CoordUtils;
 import org.matsim.dashboard.GunmaSimwrapperRunner;
 import org.matsim.prepare.config.PrepareConfig;
+import org.matsim.prepare.counts.CreateCountsFromMlitData;
 import org.matsim.prepare.facilities.CreateMATSimFacilities;
 import org.matsim.prepare.facilities.CreateMATSimFacilitiesGunma;
+import org.matsim.prepare.opt.RunCountOptimization;
 import org.matsim.prepare.opt.SelectPlansFromIndex;
 import org.matsim.prepare.population.*;
 
@@ -60,20 +74,22 @@ import java.util.Set;
 	DownSamplePopulation.class,
 	CreateNetworkFromSumo.class, CreateTransitScheduleFromGtfs.class,
 	CleanNetwork.class, RunActivitySampling.class, InitLocationChoice.class,
-	CreateMATSimFacilities.class, CreateMATSimFacilitiesGunma.class, LookupJisZone.class})
+	CreateMATSimFacilities.class, CreateMATSimFacilitiesGunma.class, LookupJisZone.class, CreateCountsFromMlitData.class,
+	RunCountOptimization.class, SelectPlansFromIndex.class})
+
 
 
 public class RunOpenGunmaCalibration extends MATSimApplication {
 
 	/**
-	 * Scaling factor if all persons use car (~20% share).
+	 * Scaling factor if all persons use car (~70% share).
 	 */
-	public static final int CAR_FACTOR = 5;
+	public static final int CAR_FACTOR = 100 / 70;
 	/**
 	 * Flexible activities, which need to be known for location choice and during generation.
 	 * A day can not end on a flexible activity.
 	 */
-	public static final Set<String> FLEXIBLE_ACTS = Set.of("shop_daily", "shop_other", "shopping", "leisure", "dining");
+	public static final Set<String> FLEXIBLE_ACTS = Set.of(Activities.other.name());
 	private static final Logger log = LogManager.getLogger(RunOpenGunmaCalibration.class);
 	@CommandLine.Mixin
 	private final SampleOptions sample = new SampleOptions(25, 10, 3, 1);
@@ -91,9 +107,11 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 
 	@CommandLine.Option(names = "--plan-index", description = "Only use one plan with specified index")
 	private Integer planIndex;
+	private final boolean simwrapperOn = false;
+
 
 	public RunOpenGunmaCalibration() {
-		super(ConfigUtils.loadConfig("input/v1.1/gunma-v1.1-config.xml"));
+		super(ConfigUtils.loadConfig("input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-config.xml"));
 	}
 
 	/**
@@ -130,6 +148,10 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 	@Override
 	@SuppressWarnings("JavaNCSS")
 	protected Config prepareConfig(Config config) {
+
+//		List<String> relevantSubpopulations = List.of("person", "commercialPersonTraffic", "commercialPersonTraffic_service", "goodsTraffic");
+		List<String> relevantSubpopulations = List.of("person", "commuter2gunma");
+
 
 		if (populationPath == null) {
 			throw new IllegalArgumentException("Population path is required [--population]");
@@ -202,7 +224,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 		}
 
 		// Required for all calibration strategies
-		for (String subpopulation : List.of("person", "commercialPersonTraffic", "commercialPersonTraffic_service", "goodsTraffic")) {
+		for (String subpopulation : relevantSubpopulations) {
 			config.replanning().addStrategySettings(
 				new ReplanningConfigGroup.StrategySettings()
 					.setStrategyName(DefaultPlanStrategiesModule.DefaultSelector.ChangeExpBeta)
@@ -250,8 +272,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 		} else if (mode == CalibrationMode.cadyts) {
 
 			// Re-route for all populations
-			//todo: no commercial at this point
-			for (String subpopulation : List.of("person", "commercialPersonTraffic", "commercialPersonTraffic_service", "goodsTraffic")) {
+			for (String subpopulation : relevantSubpopulations) {
 				config.replanning().addStrategySettings(new ReplanningConfigGroup.StrategySettings()
 					.setStrategyName(DefaultPlanStrategiesModule.DefaultStrategy.ReRoute)
 					.setWeight(weight / 8)
@@ -286,7 +307,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 
 			// Re-route for all populations
 			// Weight is decreased, force innovation is used
-			for (String subpopulation : List.of("person", "commercialPersonTraffic", "commercialPersonTraffic_service", "goodsTraffic")) {
+			for (String subpopulation : relevantSubpopulations) {
 				config.replanning().addStrategySettings(new ReplanningConfigGroup.StrategySettings()
 					.setStrategyName(DefaultPlanStrategiesModule.DefaultStrategy.ReRoute)
 					.setWeight(weight / 8)
@@ -392,48 +413,48 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 
 		} else if (mode == CalibrationMode.cadyts) {
 
-//			controler.addOverridingModule(new CadytsCarModule());
-//			controler.setScoringFunctionFactory(new ScoringFunctionFactory() {
-//				@Inject
-//				ScoringParametersForPerson parameters;
-//				@Inject
-//				private CadytsContext cadytsContext;
-//
-//				@Override
-//				public ScoringFunction createNewScoringFunction(Person person) {
-//					SumScoringFunction sumScoringFunction = new SumScoringFunction();
-//
-//					Config config = controler.getConfig();
-//
-//					// Not using the usual scoring, just cadyts + travel time
-//					// final ScoringParameters params = parameters.getScoringParameters(person);
-//					// sumScoringFunction.addScoringFunction(new CharyparNagelLegScoring(params, controler.getScenario().getNetwork()));
-//
-//					final CadytsScoring<Link> scoringFunction = new CadytsScoring<>(person.getSelectedPlan(), config, cadytsContext);
-//					scoringFunction.setWeightOfCadytsCorrection(30 * config.scoring().getBrainExpBeta());
-//					sumScoringFunction.addScoringFunction(scoringFunction);
-//
-//					return sumScoringFunction;
-//				}
-//			});
-//
-//			controler.addOverridingModule(new AbstractModule() {
-//				@Override
-//				public void install() {
-//					binder().bind(new TypeLiteral<StrategyChooser<Plan, Person>>() {
-//					}).toInstance(new ForceInnovationStrategyChooser<>((int) Math.ceil(1.0 / weight), ForceInnovationStrategyChooser.Permute.yes));
-//				}
-//			});
+			controler.addOverridingModule(new CadytsCarModule());
+			controler.setScoringFunctionFactory(new ScoringFunctionFactory() {
+				@Inject
+				ScoringParametersForPerson parameters;
+				@Inject
+				private CadytsContext cadytsContext;
+
+				@Override
+				public ScoringFunction createNewScoringFunction(Person person) {
+					SumScoringFunction sumScoringFunction = new SumScoringFunction();
+
+					Config config = controler.getConfig();
+
+					// Not using the usual scoring, just cadyts + travel time
+					// final ScoringParameters params = parameters.getScoringParameters(person);
+					// sumScoringFunction.addScoringFunction(new CharyparNagelLegScoring(params, controler.getScenario().getNetwork()));
+
+					final CadytsScoring<Link> scoringFunction = new CadytsScoring<>(person.getSelectedPlan(), config, cadytsContext);
+					scoringFunction.setWeightOfCadytsCorrection(30 * config.scoring().getBrainExpBeta());
+					sumScoringFunction.addScoringFunction(scoringFunction);
+
+					return sumScoringFunction;
+				}
+			});
+
+			controler.addOverridingModule(new AbstractModule() {
+				@Override
+				public void install() {
+					binder().bind(new TypeLiteral<StrategyChooser<Plan, Person>>() {
+					}).toInstance(new ForceInnovationStrategyChooser<>((int) Math.ceil(1.0 / weight), ForceInnovationStrategyChooser.Permute.yes));
+				}
+			});
 
 		} else if (mode == CalibrationMode.routeChoice) {
 
-//			controler.addOverridingModule(new AbstractModule() {
-//				@Override
-//				public void install() {
-//					binder().bind(new TypeLiteral<StrategyChooser<Plan, Person>>() {
-//					}).toInstance(new ForceInnovationStrategyChooser<>((int) Math.ceil(1.0 / weight), ForceInnovationStrategyChooser.Permute.yes));
-//				}
-//			});
+			controler.addOverridingModule(new AbstractModule() {
+				@Override
+				public void install() {
+					binder().bind(new TypeLiteral<StrategyChooser<Plan, Person>>() {
+					}).toInstance(new ForceInnovationStrategyChooser<>((int) Math.ceil(1.0 / weight), ForceInnovationStrategyChooser.Permute.yes));
+				}
+			});
 		}
 
 		controler.addOverridingModule(new AbstractModule() {
@@ -444,7 +465,9 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 		});
 
 		controler.addOverridingModule(new OpenGunmaScenario.TravelTimeBinding(allCar));
-		controler.addOverridingModule(new SimWrapperModule());
+		if (simwrapperOn) {
+			controler.addOverridingModule(new SimWrapperModule());
+		}
 
 //		if (ConfigUtils.hasModule(controler.getConfig(), AdvancedScoringConfigGroup.class)) {
 //			controler.addOverridingModule(new AdvancedScoringModule());

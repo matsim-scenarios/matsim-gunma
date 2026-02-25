@@ -20,8 +20,8 @@ $(JAR):
 	mvn package
 
 
-S := 25
-X := 0.25
+S := 1
+X := 0.01
 config: $p/gunma-$V-config.xml
 network: $p/gunma-$V-network.xml
 facilities: $p/gunma-$V-facilities.xml
@@ -124,12 +124,15 @@ $p/gunma-$V-network.xml: $p/sumo.net.xml
 ###############################################################
 ### C) FACILITIES
 ###############################################################
-
+# Inputs:
+# - jis_zones_75km_envelope.shp : is created by process_shape_files.Rmd (all JIS zones within the 75km envelope surrounding Gunma)
+# - facility_locations_yellowpages.csv : is created by process_facilities.Rmd. This contains all the "work", "education", and "other"
+# 	facility types within 75km of Gunma Prefecture.
+#	 --shp $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp \
 
 $p/gunma-$V-facilities.xml: $p/gunma-$V-network.xml
 	$(sc) prepare facilities-gunma --network $< \
-	 --telfacs $(gunma)/processed/facility_locations_yellowpages.csv \
-	 --shp $(gunma)/processed/jis_zones/jis_zones.shp \
+	 --telfacs $(gunma)/processed/facility_locations_yellowpages/facility_locations_yellowpages.csv \
 	 --output $@
 
 ###############################################################
@@ -137,13 +140,14 @@ $p/gunma-$V-facilities.xml: $p/gunma-$V-network.xml
 ###############################################################
 
 # 1) Merge Shapefiles for census data
-$(gunma)/raw/shp/mesh250m/mesh250m.shp: $(gunma)/raw/shp/mesh250m/QDDSWQ5338/MESH05338.shp $(gunma)/raw/shp/mesh250m/QDDSWQ5438/MESH05438.shp $(gunma)/raw/shp/mesh250m/QDDSWQ5439/MESH05439.shp $(gunma)/raw/shp/mesh250m/QDDSWQ5538/MESH05538.shp $(gunma)/raw/shp/mesh250m/QDDSWQ5539/MESH05539.shp
+
+$(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m-2450.shp: $(gunma)/raw/01_shapefiles/mesh250m_census/QDDSWQ5338/MESH05338.shp $(gunma)/raw/01_shapefiles/mesh250m_census/QDDSWQ5438/MESH05438.shp $(gunma)/raw/01_shapefiles/mesh250m_census/QDDSWQ5439/MESH05439.shp $(gunma)/raw/01_shapefiles/mesh250m_census/QDDSWQ5538/MESH05538.shp $(gunma)/raw/01_shapefiles/mesh250m_census/QDDSWQ5539/MESH05539.shp
 	ogr2ogr $@ $(word 1,$^) -nln mesh250m
-	ogr2ogr -update -append $@ $(word 2,$^) -nln mesh250m
-	ogr2ogr -update -append $@ $(word 3,$^) -nln mesh250m
-	ogr2ogr -update -append $@ $(word 4,$^) -nln mesh250m
-	ogr2ogr -update -append $@ $(word 5,$^) -nln mesh250m
-	ogr2ogr -t_srs EPSG:2450 $(gunma)/raw/shp/mesh250m_census/mesh250m-2450.shp $@ -nln mesh250m
+	ogr2ogr -update -append $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m.shp $(word 2,$^) -nln mesh250m
+	ogr2ogr -update -append $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m.shp $(word 3,$^) -nln mesh250m
+	ogr2ogr -update -append $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m.shp $(word 4,$^) -nln mesh250m
+	ogr2ogr -update -append $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m.shp $(word 5,$^) -nln mesh250m
+	ogr2ogr -t_srs EPSG:2450  $@ $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m.shp -nln mesh250m
 
 
 
@@ -151,7 +155,7 @@ ddd: $p/gunma-static-$V-100pct.plans.xml.gz
 # 2) Generate static population plans
 #		--facilities $(word 3,$^) --facilities-attr resident\
 # input/facilities.gpkg
-$p/gunma-static-men-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/raw/shp/mesh250m_census/mesh250m-2450.shp
+$p/gunma-static-men-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m-2450.shp
 	$(sc) prepare gunma-population\
 		--input $<\
 		--sample 1.0\
@@ -159,7 +163,7 @@ $p/gunma-static-men-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q
 		--sex MALE\
 		--output $@
 
-$p/gunma-static-women-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/raw/shp/mesh250m_census/mesh250m-2450.shp
+$p/gunma-static-women-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m-2450.shp
 	$(sc) prepare gunma-population\
 		--input $<\
 		--sample 1.0\
@@ -167,12 +171,12 @@ $p/gunma-static-women-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT00110
 		--sex FEMALE\
 		--output $@
 
-$p/gunma-static-commuters-$V-100pct.plans.xml.gz: $(gunma)/processed/work_od_matrix.csv $(gunma)/processed/1_shapefiles/jis_zones/jis_zones.shp
-	$(sc) prepare gunma-commuters\
+$p/gunma-static-commuters-$V-100pct.plans.xml.gz: $(gunma)/processed/commuters_od_matrix/work_od_matrix_scaled.csv $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp
+	$(sc) prepare gunma-commuter\
 		--input $<\
 		--sample 1.0\
 		--shp $(word 2,$^) --shp-crs EPSG:2450\
-		--output $@§
+		--output $@
 
 
 $p/gunma-static-$V-100pct.plans.xml.gz:	$p/gunma-static-men-$V-100pct.plans.xml.gz  $p/gunma-static-women-$V-100pct.plans.xml.gz $p/gunma-static-commuters-$V-100pct.plans.xml.gz
@@ -182,12 +186,9 @@ $p/gunma-static-$V-100pct.plans.xml.gz:	$p/gunma-static-men-$V-100pct.plans.xml.
 	#rm $p/gunma-static-women-$V-100pct.plans.xml.gz
 	#rm $p/gunma-static-men-$V-100pct.plans.xml.gz
 
-	$(sc) prepare lookup-jis-code --input $@ --output $@ --shp $(gunma)/processed/1_shapefiles/jis_zones/jis_zones.shp
+	$(sc) prepare lookup-jis-code --input $@ --output $@ --shp $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp
 
 
-
-
-xxx : $p/gunma-static-$V-$Spct.plans.xml.gz
 # 3) Downsample to 25% and 1%
 $p/gunma-static-$V-$Spct.plans.xml.gz: $p/gunma-static-$V-100pct.plans.xml.gz
 	$(sc) prepare downsample-population $< \
@@ -200,11 +201,6 @@ $p/gunma-static-$V-$Spct.plans.xml.gz: $p/gunma-static-$V-100pct.plans.xml.gz
 # TODO: I don't understand why assign-reference-population is necessary - it seems to be doing the same thing as activity-sampling. It even calls upon that class... I'm gonna skip it for now until I understand better
 # NOTE: We we hardcoded in the City/District Divide; this only works for Gunma.
 # NOTE: We ignore employment for now, because we haven't included it into our static population as of yet.
-# NOTE: I've updated the range to 15 years on either side for people above 65, which is hella wide, but necessary until we get a larger travel survey population
-# TODO: filter reference population less aggressively, so we have a larger pool (especially for old people) to choose from.
-# todo: include pt population in generation. Just filter out this population or teleport them before
-giig: $p/gunma-activities-$V-1pct.plans.xml.gz
-
 $p/gunma-activities-$V-$Spct.plans.xml.gz: $p/gunma-static-$V-$Spct.plans.xml.gz $(gunma)/processed/travel_survey/person_attributes.csv $(gunma)/processed/travel_survey/activities.csv
 	$(sc) prepare activity-sampling \
 		--seed 1 \
@@ -224,7 +220,7 @@ $p/gunma-activities-$V-$Spct.plans.xml.gz: $p/gunma-static-$V-$Spct.plans.xml.gz
 
 
 # 4) Location Choice
-$p/gunma-locations-$V-$Spct.plans.xml.gz: $p/gunma-activities-$V-$Spct.plans.xml.gz $p/gunma-$V-facilities.xml $p/gunma-$V-network.xml $(gunma)/processed/jis_zones/jis_zones.shp $(gunma)/processed/work_od_matrix.csv
+$p/gunma-locations-$V-$Spct.plans.xml.gz: $p/gunma-activities-$V-$Spct.plans.xml.gz $p/gunma-$V-facilities.xml $p/gunma-$V-network.xml $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp $(gunma)/processed/commuters_od_matrix/work_od_matrix_scaled.csv
 	$(sc) prepare init-location-choice \
 	 --input $< \
 	 --output $@ \
@@ -233,26 +229,70 @@ $p/gunma-locations-$V-$Spct.plans.xml.gz: $p/gunma-activities-$V-$Spct.plans.xml
 	 --shp $(word 4,$^) \
 	 --commuter $(word 5,$^) \
 	 --sample $X \
-	 --k 1
+	 --k 5
 
 # 5) Eval Run
-$p/gunma-experienced-$V-$Spct.plans.xml.gz: $p/gunma-$V-config.xml $p/gunma-locations-$V-$Spct.plans.xml.gz
-	$(sc) run --$Spct --config $< --population $(word 2,$^) --mode eval
+#$p/gunma-experienced-$V-$Spct.plans.xml.gz: $p/gunma-$V-config.xml $p/gunma-locations-$V-$Spct.plans.xml.gz
+#	$(sc) run --$Spct --config $< --population $(word 2,$^) --mode eval
+#
+#	cp output/eval.output_experienced_plans.xml.gz $@
 
-	cp output/eval.output_experienced_plans.xml.gz $@
+
+###############################################################
+### E) C A D Y T S
+###############################################################
+
+ERROR_METRIC ?= log_error
+
+# 1) Create the counts file required for cadyts
+
+$p/gunma-$V-counts-mlit.xml.gz: $(gunma)/processed/roadcounts/matsim_linkId_to_roadcounts.csv
+	$(sc) prepare counts-from-mlit --input $< --output $@
 
 
+# 2) create $p/gunma-$V-$Spct.plans_selection_$(ERROR_METRIC).csv, which specifies for each agent, which is the best plan
+$p/gunma-$V-$Spct.plans_selection_$(ERROR_METRIC).csv: $p/gunma-experienced-$V-$Spct.plans.xml.gz $p/gunma-$V-network.xml $p/gunma-$V-counts-mlit.xml.gz
+	$(sc) prepare run-count-opt\
+	 --input $<\
+	 --network $(word 2,$^)\
+     --counts $(word 3,$^)\
+	 --output $@ \
+	 --sample-size $X \
+	 --metric $(ERROR_METRIC)
+
+
+# 3) filter the plans to only include the best plan
+$p/gunma-$V-$Spct.plans_$(ERROR_METRIC).xml.gz : $p/gunma-locations-$V-$Spct.plans.xml.gz $p/gunma-$V-$Spct.plans_selection_$(ERROR_METRIC).csv
+	$(sc) prepare select-plans-idx\
+ 	 --input $< \
+ 	 --csv $(word 2,$^)\
+ 	 --output $@
+
+
+# 4) run 20 iterations with route choice.
+output/eval-$(ERROR_METRIC) : $p/gunma-$V.config.xml gunma-$V-$Spct.plans_$(ERROR_METRIC).xml.gz
+	$(sc) run \
+	 --mode "routeChoice" \
+	 --iterations 20 \
+	 --output $@ \
+	 --$Spct \
+	 --population $(word 2,$^) \
+	 --config $<
+
+
+# I'm not sure if the following code is an alternative to the above code, or if it complements it.
+$p/gunma-$V-$Spct.plans_cadyts.xml.gz:
+	$(sc) prepare extract-plans-idx\
+	 --input output/cadyts/cadyts.output_plans.xml.gz\
+	 --output $p/gunma-$V-$Spct.plans_selection_cadyts.csv
+
+	$(sc) prepare select-plans-idx\
+	 --input $p/gunma-cadyts-input-$V-$Spct.plans.xml.gz\
+	 --csv $p/gunma-$V-$Spct.plans_selection_cadyts.csv\
+	 --output $@
+
+
+#### DASHBOARD
 output/dashboard-1.yaml:
 	$(sc) prepare gunma-dashboard output/
-#
-
-
-
-
-
-# SKIPPED STEPS - these are steps done in the Berlin Scenario that we do not do here:
-# Commercial Traffic
-# prepare merge-plans -->  "This file requires eval runs" ??? What does that mean?
-
-# Chose Plan to match the traffic counts...
 
