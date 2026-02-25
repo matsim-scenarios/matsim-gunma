@@ -41,13 +41,12 @@ public class CreateCountsFromMlitData implements MATSimAppCommand {
 //	private final CountsOptions counts = new CountsOptions();
 
 
-
-//	@CommandLine.Mixin
+	//	@CommandLine.Mixin
 //	private final CrsOptions crs = new CrsOptions("EPSG:2450");
 //	@CommandLine.Option(names = "--network", description = "path to MATSim network", required = true)
 //	private String network = "input/v1.2/";
 	@CommandLine.Option(names = "--input", description = "Input LinkId to Counts Path")
-	private Path input = Path.of("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_linkId_to_roadcounts.csv");
+	private Path input;
 	@CommandLine.Option(names = "--output", description = "Output counts path", defaultValue = "input/v1.3/counts-from-mlit.xml.gz")
 	private Path output;
 

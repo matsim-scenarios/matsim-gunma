@@ -87,6 +87,10 @@ public class GunmaPopulationAttributeAnalysis implements MATSimAppCommand {
 
 		for (Person person : population.getPersons().values()) {
 
+			if (person.getId().toString().startsWith("commuter")) {
+				continue;
+			}
+
 //			Integer var4 = this.totalAgents;
 			this.totalAgents = this.totalAgents + 1;
 			if (person.getAttributes().getAsMap().containsKey("age") && person.getAttributes().getAsMap().containsKey("income") && person.getAttributes().getAsMap().containsKey("sex")) {

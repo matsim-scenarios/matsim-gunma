@@ -5,33 +5,36 @@ import org.matsim.simwrapper.Header;
 import org.matsim.simwrapper.Layout;
 import org.matsim.simwrapper.viz.AggregateOD;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * OD Flows in Gunma scenario.
  */
 public class GunmaAggrODDashboard implements Dashboard {
 
-
-	private final String odFlowsFile;
-	private final String odFlowsOutsideFile;
-	private final String odFlowsOutsidePrefectureFile;
-	private final String shpFile;
 	private final String crs;
-	private final String prefectureShpFile;
 	private final String idColumn = "id";
 	private final double height = 15.0;
-	private final String shpFileDbf;
-	private final String prefectureShpFileDbf;
 
-	public GunmaAggrODDashboard(String shpFile, String crs, String odFlowsFile, String odFlowsOutsideFile, String odFlowsOutsidePrefectureFile, String prefectureShpFile) {
-		this.shpFile = shpFile;
-		this.shpFileDbf = shpFile.replace(".shp", ".dbf");
+
+	private final List<String> titles = new ArrayList<>();
+	private final List<String> odFlowsFiles = new ArrayList<>();
+	private final List<String> shpFiles = new ArrayList<>();
+	private final List<String> shpFilesDbf = new ArrayList<>();
+
+	public GunmaAggrODDashboard(String crs) {
 		this.crs = crs;
-		this.odFlowsFile = odFlowsFile;
-		this.odFlowsOutsideFile = odFlowsOutsideFile;
-		this.odFlowsOutsidePrefectureFile = odFlowsOutsidePrefectureFile;
-		this.prefectureShpFile = prefectureShpFile;
-		prefectureShpFileDbf = prefectureShpFile.replace(".shp", ".dbf");
 
+	}
+
+	public final GunmaAggrODDashboard addTab(String title, String odFlowsFile, String shpFile) {
+		titles.add(title);
+		odFlowsFiles.add(odFlowsFile);
+		shpFiles.add(shpFile);
+		shpFilesDbf.add(shpFile.replace(".shp", ".dbf"));
+
+		return this;
 	}
 
 	@Override
@@ -43,16 +46,9 @@ public class GunmaAggrODDashboard implements Dashboard {
 		header.fullScreen = false;
 
 
-		// ###### TAB 1: OD Flows within Gunma Prefecture ######
-		createTab(layout, "within-gunma", shpFile, shpFileDbf, odFlowsFile);
-
-		// ###### TAB 2: OD Flows outside of Gunma Prefecture (Municipality) ######
-		createTab(layout, "outside-gunma", shpFile, shpFileDbf, odFlowsOutsideFile);
-
-		// ###### TAB 3: OD Flows outside of Gunma Prefecture (Prefecture) ######
-		createTab(layout, "outside-pref-gunma", prefectureShpFile, prefectureShpFileDbf, odFlowsOutsidePrefectureFile);
-
-
+		for (int i = 0; i < titles.size(); i++) {
+			createTab(layout, titles.get(i), shpFiles.get(i), shpFilesDbf.get(i), odFlowsFiles.get(i));
+		}
 
 	}
 

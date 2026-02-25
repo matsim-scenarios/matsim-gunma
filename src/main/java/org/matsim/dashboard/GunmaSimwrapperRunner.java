@@ -109,7 +109,17 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 
 			// Origins and Destinations, flows shown
 
-			GunmaAggrODDashboard aggregateODDashboardGunma = new GunmaAggrODDashboard("resources/jis_zones_50km_clip.shp", "EPSG:2450", "resources/gunma_od_sim.csv", "resources/gunma_outside_od_sim.csv", "resources/gunma_outside_pref_od_sim.csv", "resources/pref_shp.shp");
+			GunmaAggrODDashboard aggregateODDashboardGunma = new GunmaAggrODDashboard("EPSG:2450");
+			aggregateODDashboardGunma
+				.addTab("within-gunma", "resources/gunma_od_sim.csv", "resources/jis_zones_50km_clip.shp")
+				.addTab("inflow-muncip", "resources/gunma_inflow_od_sim.csv", "resources/jis_zones_50km_clip.shp")
+				.addTab("outflow-muncip", "resources/gunma_outflow_od_sim.csv", "resources/jis_zones_50km_clip.shp")
+				.addTab("inflow-pref", "resources/gunma_inflow_pref_od_sim.csv", "resources/pref_shp.shp")
+				.addTab("outflow-pref", "resources/gunma_outflow_pref_od_sim.csv", "resources/pref_shp.shp");
+
+
+
+//			GunmaAggrODDashboard aggregateODDashboardGunma = new GunmaAggrODDashboard("resources/jis_zones_50km_clip.shp", "EPSG:2450", "resources/gunma_od_sim.csv", "resources/gunma_outside_od_sim.csv", "resources/gunma_outside_pref_od_sim.csv", "resources/pref_shp.shp");
 
 
 			// Traffic Counts (based on counts from MLIT)
@@ -117,17 +127,17 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 			trafficCountsDashboard.withCountsPath("input/v1.3/counts-from-mlit.xml.gz");
 			trafficCountsDashboard.withModes(TransportMode.car, Set.of(TransportMode.car));
 
-			sw.addDashboard(facilities);
-			sw.addDashboard(populationAttributeDashboard);
-			sw.addDashboard(activityDashboard);
-			sw.addDashboard(odTripDashboard);
+//			sw.addDashboard(facilities);
+//			sw.addDashboard(populationAttributeDashboard);
+//			sw.addDashboard(activityDashboard);
+//			sw.addDashboard(odTripDashboard);
 			sw.addDashboard(aggregateODDashboardGunma);
-			sw.addDashboard(trips);
-			sw.addDashboard(trafficDashboard);
-			sw.addDashboard(trafficCountsDashboard);
+//			sw.addDashboard(trips);
+////			sw.addDashboard(trafficDashboard);
+//			sw.addDashboard(trafficCountsDashboard);
 			try {
 				//replace existing dashboards
-				boolean append = false;
+				boolean append = true;
 				sw.generate(runDirectory, append);
 				sw.run(runDirectory);
 			} catch (IOException e) {
