@@ -16,9 +16,6 @@ import java.nio.file.Path;
 
 public class PrepareConfig implements MATSimAppCommand {
 
-	@CommandLine.Option(names = "--input", description = "Path to input config.", required = true)
-	private Path input;
-
 	@CommandLine.Option(names = "--output", description = "Path to output config.", required = true)
 	private Path output;
 
@@ -37,6 +34,7 @@ public class PrepareConfig implements MATSimAppCommand {
 		// input files
 		config.network().setInputFile(output.getFileName().toString().replace("config", "network"));
 		config.facilities().setInputFile(output.getFileName().toString().replace("config", "facilities"));
+		config.plans().setInputFile(output.getFileName().toString().replace("config", "100pct-plans"));
 
 
 		// activity params

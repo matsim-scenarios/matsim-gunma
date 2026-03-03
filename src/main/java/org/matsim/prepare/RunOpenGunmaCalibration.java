@@ -23,6 +23,7 @@ import org.matsim.contrib.cadyts.car.CadytsContext;
 import org.matsim.contrib.cadyts.general.CadytsScoring;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
+import org.matsim.core.config.groups.QSimConfigGroup;
 import org.matsim.core.config.groups.ReplanningConfigGroup;
 import org.matsim.core.config.groups.RoutingConfigGroup;
 import org.matsim.core.config.groups.VspExperimentalConfigGroup;
@@ -52,6 +53,7 @@ import org.matsim.prepare.opt.RunCountOptimization;
 import org.matsim.prepare.opt.SelectPlansFromIndex;
 import org.matsim.prepare.population.*;
 
+import org.matsim.prepare.vehicles.PrepareVehicleTypes;
 import org.matsim.run.Activities;
 import org.matsim.run.OpenGunmaScenario;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
@@ -75,7 +77,7 @@ import java.util.Set;
 	CreateNetworkFromSumo.class, CreateTransitScheduleFromGtfs.class,
 	CleanNetwork.class, RunActivitySampling.class, InitLocationChoice.class,
 	CreateMATSimFacilities.class, CreateMATSimFacilitiesGunma.class, LookupJisZone.class, CreateCountsFromMlitData.class,
-	RunCountOptimization.class, SelectPlansFromIndex.class})
+	RunCountOptimization.class, SelectPlansFromIndex.class, SplitActivityTypesDuration.class, AmendStartTimeCommuters.class, PrepareVehicleTypes.class})
 
 
 
@@ -156,6 +158,11 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 		if (populationPath == null) {
 			throw new IllegalArgumentException("Population path is required [--population]");
 		}
+
+
+		config.vehicles().setVehiclesFile("gunma-v" + OpenGunmaScenario.VERSION + "-vehicleTypes.xml");
+		config.qsim().setVehiclesSource(QSimConfigGroup.VehiclesSource.modeVehicleTypesFromVehiclesData);
+		config.qsim().setUsePersonIdForMissingVehicleId(false);
 
 		config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.deleteDirectoryIfExists);
 

@@ -49,22 +49,22 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 
 	private static final Logger log = LogManager.getLogger(InitLocationChoice.class);
 
-	@CommandLine.Option(names = "--input", description = "Path to input population.", defaultValue = "/Users/jakob/git/matsim-gunma/input/v1.2/gunma-activities-v1.2-1pct.plans.xml.gz")
+	@CommandLine.Option(names = "--input", description = "Path to input population.")
 	private Path input;
 
-	@CommandLine.Option(names = "--output", description = "Path to output population", required = true, defaultValue = "/Users/jakob/git/matsim-gunma/input/v1.2/gunma-locations-v1.2-1pct.plans.xml.gz")
+	@CommandLine.Option(names = "--output", description = "Path to output population", required = true)
 	private Path output;
 
 	@CommandLine.Option(names = "--k", description = "Number of choices to generate", defaultValue = "1")
 	private int k;
 
-	@CommandLine.Option(names = "--commuter", description = "Path to commuter.csv", required = true, defaultValue = "../shared-svn/projects/matsim-gunma/data/processed/work_od_matrix.csv")
+	@CommandLine.Option(names = "--commuter", description = "Path to commuter.csv", required = true)
 	private Path commuterPath;
 
-	@CommandLine.Option(names = "--facilities", description = "Path to facilities file", required = true, defaultValue = "/Users/jakob/git/matsim-gunma/input/v1.2/gunma-v1.2-facilities.xml")
+	@CommandLine.Option(names = "--facilities", description = "Path to facilities file", required = true)
 	private Path facilityPath;
 
-	@CommandLine.Option(names = "--network", description = "Path to network file", required = true, defaultValue = "/Users/jakob/git/matsim-gunma/input/v1.2/gunma-v1.2-network.xml")
+	@CommandLine.Option(names = "--network", description = "Path to network file", required = true)
 	private Path networkPath;
 
 	@CommandLine.Option(names = "--sample", description = "Sample size of the population", defaultValue = "0.25")

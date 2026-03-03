@@ -7,6 +7,7 @@ import org.matsim.application.ApplicationUtils;
 import org.matsim.application.MATSimAppCommand;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
+import org.matsim.run.OpenGunmaScenario;
 import org.matsim.simwrapper.SimWrapper;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.dashboard.*;
@@ -124,20 +125,20 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 
 			// Traffic Counts (based on counts from MLIT)
 			TrafficCountsDashboard trafficCountsDashboard = new TrafficCountsDashboard();
-			trafficCountsDashboard.withCountsPath("input/v1.3/counts-from-mlit.xml.gz");
+			trafficCountsDashboard.withCountsPath("input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-counts-mlit.xml.gz");
 			trafficCountsDashboard.withModes(TransportMode.car, Set.of(TransportMode.car));
 
-//			sw.addDashboard(facilities);
-//			sw.addDashboard(populationAttributeDashboard);
-//			sw.addDashboard(activityDashboard);
-//			sw.addDashboard(odTripDashboard);
+			sw.addDashboard(facilities);
+			sw.addDashboard(populationAttributeDashboard);
+			sw.addDashboard(activityDashboard);
+			sw.addDashboard(odTripDashboard);
 			sw.addDashboard(aggregateODDashboardGunma);
-//			sw.addDashboard(trips);
-////			sw.addDashboard(trafficDashboard);
-//			sw.addDashboard(trafficCountsDashboard);
+			sw.addDashboard(trips);
+			sw.addDashboard(trafficDashboard);
+			sw.addDashboard(trafficCountsDashboard);
 			try {
 				//replace existing dashboards
-				boolean append = true;
+				boolean append = false;
 				sw.generate(runDirectory, append);
 				sw.run(runDirectory);
 			} catch (IOException e) {

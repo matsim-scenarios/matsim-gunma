@@ -122,6 +122,14 @@ $p/gunma-$V-network.xml: $p/sumo.net.xml
 
 
 ###############################################################
+### C) VEHICLE TYPES
+###############################################################
+
+xxx : $p/gunma-$V-vehicleTypes.xml
+$p/gunma-$V-vehicleTypes.xml:
+	$(sc) prepare prepare-vehicle-types --output $@
+
+###############################################################
 ### C) FACILITIES
 ###############################################################
 # Inputs:
@@ -232,10 +240,10 @@ $p/gunma-locations-$V-$Spct.plans.xml.gz: $p/gunma-activities-$V-$Spct.plans.xml
 	 --k 5
 
 # 5) Eval Run
-#$p/gunma-experienced-$V-$Spct.plans.xml.gz: $p/gunma-$V-config.xml $p/gunma-locations-$V-$Spct.plans.xml.gz
-#	$(sc) run --$Spct --config $< --population $(word 2,$^) --mode eval
-#
-#	cp output/eval.output_experienced_plans.xml.gz $@
+$p/gunma-experienced-$V-$Spct.plans.xml.gz: $p/gunma-$V-config.xml $p/gunma-locations-$V-$Spct.plans.xml.gz
+	$(sc) run --$Spct --config $< --population $(word 2,$^) --mode eval
+
+	cp output/eval.output_experienced_plans.xml.gz $@
 
 
 ###############################################################
@@ -245,6 +253,7 @@ $p/gunma-locations-$V-$Spct.plans.xml.gz: $p/gunma-activities-$V-$Spct.plans.xml
 ERROR_METRIC ?= log_error
 
 # 1) Create the counts file required for cadyts
+xxx: $p/gunma-$V-counts-mlit.xml.gz
 
 $p/gunma-$V-counts-mlit.xml.gz: $(gunma)/processed/roadcounts/matsim_linkId_to_roadcounts.csv
 	$(sc) prepare counts-from-mlit --input $< --output $@
@@ -270,7 +279,7 @@ $p/gunma-$V-$Spct.plans_$(ERROR_METRIC).xml.gz : $p/gunma-locations-$V-$Spct.pla
 
 
 # 4) run 20 iterations with route choice.
-output/eval-$(ERROR_METRIC) : $p/gunma-$V.config.xml gunma-$V-$Spct.plans_$(ERROR_METRIC).xml.gz
+output/eval-$(ERROR_METRIC) : $p/gunma-$V-config.xml $p/gunma-$V-$Spct.plans_$(ERROR_METRIC).xml.gz
 	$(sc) run \
 	 --mode "routeChoice" \
 	 --iterations 20 \
@@ -280,17 +289,33 @@ output/eval-$(ERROR_METRIC) : $p/gunma-$V.config.xml gunma-$V-$Spct.plans_$(ERRO
 	 --config $<
 
 
+
+
 # I'm not sure if the following code is an alternative to the above code, or if it complements it.
-$p/gunma-$V-$Spct.plans_cadyts.xml.gz:
-	$(sc) prepare extract-plans-idx\
-	 --input output/cadyts/cadyts.output_plans.xml.gz\
-	 --output $p/gunma-$V-$Spct.plans_selection_cadyts.csv
+#$p/gunma-$V-$Spct.plans_cadyts.xml.gz:
+#	$(sc) prepare extract-plans-idx\
+#	 --input output/cadyts/cadyts.output_plans.xml.gz\
+#	 --output $p/gunma-$V-$Spct.plans_selection_cadyts.csv
+#
+#	$(sc) prepare select-plans-idx\
+#	 --input $p/gunma-cadyts-input-$V-$Spct.plans.xml.gz\
+#	 --csv $p/gunma-$V-$Spct.plans_selection_cadyts.csv\
+#	 --output $@
 
-	$(sc) prepare select-plans-idx\
-	 --input $p/gunma-cadyts-input-$V-$Spct.plans.xml.gz\
-	 --csv $p/gunma-$V-$Spct.plans_selection_cadyts.csv\
-	 --output $@
 
+### Prepare Initial plans
+
+
+# A) When I created the commuters's daily plans, I didn't add any start_time to work or home, because it depends on how long
+# they have to travel. Now that some iterations have run through, I've added start times based on the trip to that activity.
+# B) Splits activity types into type_DURATION
+qqq: $p/gunma-$V-$Spct.plans-initial.xml.gz
+$p/gunma-$V-$Spct.plans-initial.xml.gz: output/eval-$(ERROR_METRIC)
+	$(sc) prepare amend-start-time-commuters \
+	--input $</routeChoice.output_selected_plans.xml.gz --output $@
+
+	$(sc) prepare split-activity-types-duration \
+	 --input $@ --output $@
 
 #### DASHBOARD
 output/dashboard-1.yaml:

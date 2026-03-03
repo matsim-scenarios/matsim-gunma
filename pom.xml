@@ -32,7 +32,7 @@
 
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-		<maven.compiler.release>21</maven.compiler.release>
+		<maven.compiler.release>25</maven.compiler.release>
 	</properties>
 
 	<distributionManagement>
@@ -79,6 +79,12 @@
 		<dependency>
 			<groupId>org.matsim.contrib</groupId>
 			<artifactId>cadyts-integration</artifactId>
+			<version>${matsim.version}</version>
+			<scope>compile</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.matsim.contrib</groupId>
+			<artifactId>vsp</artifactId>
 			<version>${matsim.version}</version>
 			<scope>compile</scope>
 		</dependency>
@@ -139,6 +145,7 @@
 			<artifactId>osm4j-geometry</artifactId>
 			<version>1.4.1</version>
 		</dependency>
+
 
         <!--        <dependency>-->
 <!--            <groupId>org.matsim.contrib</groupId>-->

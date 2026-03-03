@@ -24,44 +24,35 @@ if os.path.exists("mid.csv"):
 
 #%%
 
-modes = ["walk", "car", "ride", "pt", "bike"]
+# modes = ["walk", "car", "ride", "pt", "bike"]
+# INITIAL ASCs
+modes = ["walk", "car", "ride", "bike"]
 fixed_mode = "walk"
 initial = {
-    "bike": -0.141210,
-    "pt": 0.0781477780346438,
-    "car": 0.871977390743304,
-    "ride": -2.22873502992
+    "bike": -1.795,
+    "car": 0.174,
+    "ride": 0.174,
 }
 
-# FIXME: Adjust
+# Target (Trip-Based?) Mode Share
+# TODO FIX!!!!
 target = {
-    "walk": 0.1,
+    "walk": 0.14,
     "bike": 0.1,
-    "pt": 0.1,
-    "car": 0.1,
+    "car": 0.66,
     "ride": 0.1
 }
 
-region = gpd.read_file("../scenarios/dilutionArea.shp").set_crs("EPSG:25832")
-homes = pd.read_csv("template-v1.0-homes.csv", dtype={"person": "str"})
+# region = gpd.read_file("input/shp/gunma_2450.shp").set_crs("EPSG:2450")
 
 
 def filter_persons(persons):
-    persons = pd.merge(persons, homes, how="inner", left_on="person", right_on="person")
-    persons = gpd.GeoDataFrame(persons, geometry=gpd.points_from_xy(persons.home_x, persons.home_y))
-
-    df = gpd.sjoin(persons.set_crs("EPSG:25832"), city, how="inner", predicate="intersects")
-
+    df = persons[persons.person.str.startswith("gunma")]
     print("Filtered %s persons" % len(df))
-
     return df
-
 
 def filter_modes(df):
-    df = df[df.main_mode != "freight"]
-    df.loc[df.main_mode.str.startswith("pt_"), "main_mode"] = "pt"
-
-    return df
+    return df[df.main_mode.isin(modes)]
 
 
 # FIXME: Adjust paths and config
@@ -69,9 +60,9 @@ def filter_modes(df):
 study, obj = create_calibration(
     "calib",
     ASCCalibrator(modes, initial, target, lr=utils.linear_scheduler(start=0.3, interval=15)),
-    "matsim-template-1.0.jar",
-    "../input/v1.0/[name]-v1.0.config.xml",
-    args="--10pct",
+    "matsim-gunma-1.x-SNAPSHOT.jar",
+    "input/v1.4/gunma-v1.4-config.xml",
+    args="--1pct",
     jvm_args="-Xmx55G -Xms55G -XX:+AlwaysPreTouch -XX:+UseParallelGC",
     transform_persons=filter_persons,
     transform_trips=filter_modes,
