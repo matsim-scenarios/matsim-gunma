@@ -34,12 +34,21 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 	private Path telFacsPath;
 
 
-//	@CommandLine.Mixin
-//	private ShpOptions shp;
-//
-//	/** spatial index, built once. */
-//	private ShpOptions.Index jisIndex;
+	/**
+	 * Generate a new unique id within population.
+	 */
+	public static Id<ActivityFacility> generateId(ActivityFacilities facilities, SplittableRandom rnd) {
 
+		Id<ActivityFacility> id;
+		byte[] bytes = new byte[3];
+		do {
+			rnd.nextBytes(bytes);
+			id = Id.create("f" + HexFormat.of().formatHex(bytes), ActivityFacility.class);
+
+		} while (facilities.getFacilities().containsKey(id));
+
+		return id;
+	}
 
 	public static void main(String[] args) {
 		new CreateMATSimFacilitiesGunma().execute(args);
@@ -95,7 +104,7 @@ public class CreateMATSimFacilitiesGunma implements MATSimAppCommand {
 			double y = yCol.get(i);
 			String zone = zoneColumn.get(i);
 
-			Id<ActivityFacility> id = CreateMATSimFacilities.generateId(facilities, rnd);
+			Id<ActivityFacility> id = generateId(facilities, rnd);
 
 			// todo: consider adding link id?
 			Coord coord = CoordUtils.round(new Coord(x, y));

@@ -1,57 +1,139 @@
 package org.matsim.prepare.config;
 
-import org.matsim.application.MATSimAppCommand;
+import org.matsim.api.core.v01.TransportMode;
+import org.matsim.contrib.vsp.scoring.RideScoringParamsFromCarParams;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
-import org.matsim.core.config.groups.ControllerConfigGroup;
+import org.matsim.core.config.groups.*;
 import org.matsim.run.OpenGunmaScenario;
-import picocli.CommandLine;
 
-import java.nio.file.Path;
+import java.util.Map;
 
-@CommandLine.Command(
-	name = "prepare-config",
-	description = "Creates MATSim config for Gunma Region"
-)
 
-public class PrepareConfig implements MATSimAppCommand {
 
-	@CommandLine.Option(names = "--output", description = "Path to output config.", required = true)
-	private Path output;
+/**
+ * Create Base Config for Open Gunma Scenario.
+ */
+public final class PrepareConfig {
 
-	public static void main(String[] args) {
-		new PrepareConfig().execute(args);
+	private PrepareConfig(){
+		throw new UnsupportedOperationException("Utility class");
 	}
 
-	@Override
-	public Integer call() {
+	static void main() {
 		Config config = ConfigUtils.createConfig();
 
-		// global settings
+		// ############
+		// global
 		config.global().setCoordinateSystem(OpenGunmaScenario.CRS);
+		config.global().setInsistingOnDeprecatedConfigVersion(false);
+
+		// ############
+		// transit
+		config.transit().setUseTransit(false);
+
+		// ############
+		// controller
+		config.controller().setOutputDirectory("output");
 		config.controller().setCompressionType(ControllerConfigGroup.CompressionType.gzip);
+		config.controller().setRunId("gunma");
 
-		// input files
-		config.network().setInputFile(output.getFileName().toString().replace("config", "network"));
-		config.facilities().setInputFile(output.getFileName().toString().replace("config", "facilities"));
-		config.plans().setInputFile(output.getFileName().toString().replace("config", "100pct-plans"));
+		// ############
+		// network
+		config.network().setInputFile("gunma-v" + OpenGunmaScenario.VERSION + "-network.xml.gz");
+
+		// ############
+		// facilities
+		config.facilities().setInputFile("gunma-v" + OpenGunmaScenario.VERSION + "-facilities.xml.gz");
+		config.facilities().setFacilitiesSource(FacilitiesConfigGroup.FacilitiesSource.fromFile);
+
+		// ############
+		//plans
+		config.plans().setRemovingUnneccessaryPlanAttributes(true);
+		config.plans().setInputFile("gunma-v" + OpenGunmaScenario.VERSION + "-100pct-plans.xml.gz");
 
 
-		// activity params
-//		ScoringConfigGroup.ActivityParams homeParam = new ScoringConfigGroup.ActivityParams(Activities.);
-//		config.scoring().addActivityParams(homeParam);
-//
-//		Config configOld = new ConfigReader(ConfigUtils.createConfig()).readFile(input.toString());
-//		// read old config, and copy over the activity params.
-//		ConfigUtils.loadConfig(input.toString());
-//		for (ScoringConfigGroup.ActivityParams activityParam : configOld.scoring().getActivityParams()) {
-//			config.scoring().addActivityParams(activityParam);
-//
-//		}
+		// ############
+		// vehicle types
+		config.qsim().setVehiclesSource(QSimConfigGroup.VehiclesSource.modeVehicleTypesFromVehiclesData);
+		config.vehicles().setVehiclesFile("gunma-v" + OpenGunmaScenario.VERSION + "-vehicleTypes.xml");
+
+		// ############
+		// qsim
+		config.qsim().setTrafficDynamics(QSimConfigGroup.TrafficDynamics.kinematicWaves);
+		config.qsim().setUsingTravelTimeCheckInTeleportation(true);
+		config.qsim().setUsePersonIdForMissingVehicleId(false);
+
+		// ############
+		// replanning
+		config.replanning().setFractionOfIterationsToDisableInnovation(0.8);
+		config.timeAllocationMutator().setAffectingDuration(false);
+
+		// ############
+		// routing
+		config.routing().setAccessEgressType(RoutingConfigGroup.AccessEgressType.accessEgressModeToLink);
+
+		// ############
+		// scoring
+
+		// 0.8 recommended by VSP consistency checker
+		config.scoring().setFractionOfIterationsToStartScoreMSA(0.8);
+
+		// following params are from Luo et al.
+		config.scoring().setMarginalUtilityOfMoney(0.00555);
+		config.scoring().setPerforming_utils_hr(3.102);
+		config.scoring().setLateArrival_utils_hr(-9.306);
+		config.scoring().setEarlyDeparture_utils_hr(0.0);
+		config.scoring().setMarginalUtlOfWaiting_utils_hr(0.0);
+		config.scoring().setMarginalUtlOfWaitingPt_utils_hr(0.0);
+
+
+		// delete default mode configurations
+		Map<String, ScoringConfigGroup.ModeParams> modes = config.scoring().getScoringParameters(null).getModes();
+		for (ScoringConfigGroup.ModeParams modeParams : modes.values()) {
+			config.scoring().getScoringParameters(null).removeParameterSet(modeParams);
+		}
+
+
+		// Mode Params from Luo et al. (added 0.174 to all ASCs so that walk's ASC is brought to zero)
+
+		// car
+		ScoringConfigGroup.ModeParams carParams = config.scoring().getOrCreateModeParams(TransportMode.car);
+		carParams.setConstant(0.174);
+		carParams.setMarginalUtilityOfTraveling(0.0);
+		carParams.setMarginalUtilityOfDistance(0.0);
+		carParams.setMonetaryDistanceRate(-0.0068);
+
+		config.scoring().addModeParams(carParams);
+
+		// bike
+		ScoringConfigGroup.ModeParams bikeParams = config.scoring().getOrCreateModeParams(TransportMode.bike);
+		bikeParams.setConstant(-1.795);
+		bikeParams.setMarginalUtilityOfTraveling(-0.708);
+		bikeParams.setMarginalUtilityOfDistance(0.0);
+		bikeParams.setMonetaryDistanceRate(0.0);
+
+		config.scoring().addModeParams(bikeParams);
+
+		// walk
+		ScoringConfigGroup.ModeParams walkParams = config.scoring().getOrCreateModeParams(TransportMode.walk);
+		walkParams.setConstant(0.0);
+		walkParams.setMarginalUtilityOfTraveling(-5.338);
+		walkParams.setMarginalUtilityOfDistance(0.0);
+		walkParams.setMonetaryDistanceRate(0.0);
+
+		config.scoring().addModeParams(walkParams);
+
+		// ride
+
+		RideScoringParamsFromCarParams.setRideScoringParamsBasedOnCarParams(config.scoring(), 1.0);
+
+
+
 
 		// write config
-		ConfigUtils.writeConfig(config, output.toString());
-		return 0;
+		ConfigUtils.writeConfig(config, "input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-config.xml");
+
 	}
 
 }

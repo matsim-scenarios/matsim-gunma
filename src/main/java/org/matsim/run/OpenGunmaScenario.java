@@ -1,34 +1,47 @@
 package org.matsim.run;
 
 
+import org.matsim.api.core.v01.Id;
+import org.matsim.api.core.v01.Scenario;
+import org.matsim.api.core.v01.TransportMode;
+import org.matsim.api.core.v01.population.Leg;
+import org.matsim.api.core.v01.population.Person;
 import org.matsim.application.MATSimApplication;
 import org.matsim.application.options.SampleOptions;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.config.groups.ReplanningConfigGroup;
+import org.matsim.core.config.groups.ScoringConfigGroup;
+import org.matsim.core.config.groups.VspExperimentalConfigGroup;
 import org.matsim.core.controler.AbstractModule;
+import org.matsim.core.controler.Controler;
 import org.matsim.core.replanning.strategies.DefaultPlanStrategiesModule;
 
+import org.matsim.core.router.TripStructureUtils;
+import org.matsim.simwrapper.SimWrapperConfigGroup;
+import org.matsim.simwrapper.SimWrapperModule;
 import picocli.CommandLine;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @CommandLine.Command(header = ":: Open Gunma Scenario ::", version = OpenGunmaScenario.VERSION, mixinStandardHelpOptions = true, showDefaultValues = true)
 public class OpenGunmaScenario extends MATSimApplication {
 
-	public static final String VERSION = "1.4";
+	public static final String VERSION = "1.5";
 	public static final String CRS = "EPSG:2450";
 
-	@CommandLine.Mixin
-	private final SampleOptions sample = new SampleOptions(10, 25, 3, 1);
+	private final boolean removePt = true;
 
-	@CommandLine.Option(names = "--plan-selector",
-		description = "Plan selector to use.",
-		defaultValue = DefaultPlanStrategiesModule.DefaultSelector.ChangeExpBeta)
-	private String planSelector;
+	@CommandLine.Mixin
+	private final SampleOptions sample = new SampleOptions(25, 10, 1);
+
+	@CommandLine.Option(names = "--plan-selector", description = "Plan selector to use.")
+	private final String planSelector = DefaultPlanStrategiesModule.DefaultSelector.ChangeExpBeta;
 
 	public OpenGunmaScenario() {
-		super(ConfigUtils.loadConfig(String.format("input/v%s/berlin-v%s.config.xml", VERSION, VERSION)));
+		super(ConfigUtils.loadConfig(String.format("input/v%s/gunma-v%s-config.xml", VERSION, VERSION)));
 
 	}
 
@@ -36,33 +49,34 @@ public class OpenGunmaScenario extends MATSimApplication {
 		MATSimApplication.run(OpenGunmaScenario.class, args);
 	}
 
+
+
 	@Override
 	protected Config prepareConfig(Config config) {
+		// general
 
-//		SimWrapperConfigGroup sw = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
-//
-//		if (sample.isSet()) {
-//			double sampleSize = sample.getSample();
-//
-//			config.qsim().setFlowCapFactor(sampleSize);
-//			config.qsim().setStorageCapFactor(sampleSize);
-//
-//			// Counts can be scaled with sample size
-//			config.counts().setCountsScaleFactor(sampleSize);
-//			sw.sampleSize = sampleSize;
-//
-//			config.controller().setRunId(sample.adjustName(config.controller().getRunId()));
-//			config.controller().setOutputDirectory(sample.adjustName(config.controller().getOutputDirectory()));
-//			config.plans().setInputFile(sample.adjustName(config.plans().getInputFile()));
-//		}
-//
-		config.qsim().setUsingTravelTimeCheckInTeleportation(true);
+		config.controller().setLastIteration(10);
+		config.vspExperimental().setVspDefaultsCheckingLevel(VspExperimentalConfigGroup.VspDefaultsCheckingLevel.warn);
 
-		// overwrite ride scoring params with values derived from car
-//		RideScoringParamsFromCarParams.setRideScoringParamsBasedOnCarParams(config.scoring(), 1.0);
-//		Activities.addScoringParams(config, true);
-//
-//		// Required for all calibration strategies
+		// adjust  files and for sample
+		SimWrapperConfigGroup sw = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
+
+		if (sample.isSet()) {
+			modifyForSample(config, sw,sample);
+		}
+
+		// remove PT from config
+		if (removePt){
+			removePtFromConfig(config);
+		}
+
+		// ############
+		// scoring
+
+		Activities.addScoringParams(config, true);
+
+		// ############
+		// replanning
 		for (String subpopulation : List.of("person", "commuter2gunma")) {
 			config.replanning().addStrategySettings(
 				new ReplanningConfigGroup.StrategySettings()
@@ -92,30 +106,63 @@ public class OpenGunmaScenario extends MATSimApplication {
 			);
 		}
 
-
-
-
-//
-//		// Need to switch to warning for best score
-//		if (planSelector.equals(DefaultPlanStrategiesModule.DefaultSelector.BestScore)) {
-//			config.vspExperimental().setVspDefaultsCheckingLevel(VspExperimentalConfigGroup.VspDefaultsCheckingLevel.warn);
-//		}
-//
-//		// Bicycle config must be present
-//		ConfigUtils.addOrGetModule(config, BicycleConfigGroup.class);
-//
 		return config;
 	}
 
-//	@Override
-//	protected void prepareScenario(Scenario scenario) {
-//
-//	}
-//
-//	@Override
-//	protected void prepareControler(Controler controler) {
-//
-//		controler.addOverridingModule(new SimWrapperModule());
+	public static void removePtFromConfig(Config config) {
+		config.routing().removeTeleportedModeParams(TransportMode.pt);
+		config.changeMode().setModes(List.of(TransportMode.car).toArray(new String[0]));
+
+		config.scoring().removeParameterSet(config.scoring().getActivityParams("pt interaction"));
+		config.subtourModeChoice().setModes(List.of(TransportMode.car, TransportMode.walk, TransportMode.bike).toArray(new String[0]));
+	}
+
+	static void modifyForSample(Config config, SimWrapperConfigGroup sw, SampleOptions sample) {
+		double sampleSize = sample.getSample();
+
+		config.qsim().setFlowCapFactor(sampleSize);
+		config.qsim().setStorageCapFactor(sampleSize);
+
+		// Counts can be scaled with sample size
+		config.counts().setCountsScaleFactor(sampleSize);
+		sw.setSampleSize(sampleSize);
+
+		config.controller().setRunId(sample.adjustName(config.controller().getRunId()));
+		config.controller().setOutputDirectory(sample.adjustName(config.controller().getOutputDirectory()));
+		config.plans().setInputFile(sample.adjustName(config.plans().getInputFile()));
+	}
+
+	@Override
+	protected void prepareScenario(Scenario scenario) {
+		if (removePt) {
+
+			removePtFromScenario(scenario);
+		}
+	}
+
+	public static void removePtFromScenario(Scenario scenario) {
+		Set<Id<Person>> ptPersons = new HashSet<>();
+		outer:
+		for (Person person : scenario.getPopulation().getPersons().values()) {
+			for (Leg leg : TripStructureUtils.getLegs(person.getSelectedPlan())) {
+
+				if (leg.getMode().equals(TransportMode.pt)) {
+					ptPersons.add(person.getId());
+					continue outer;
+				}
+			}
+		}
+
+		for (Id<Person> personId : ptPersons) {
+
+			scenario.getPopulation().getPersons().remove(personId);
+		}
+	}
+
+	@Override
+	protected void prepareControler(Controler controler) {
+
+		controler.addOverridingModule(new SimWrapperModule());
 //
 //		controler.addOverridingModule(new TravelTimeBinding());
 //
@@ -136,7 +183,7 @@ public class OpenGunmaScenario extends MATSimApplication {
 //			});
 //		}
 //		controler.addOverridingModule(new PersonMoneyEventsAnalysisModule());
-//	}
+	}
 
 	/**
 	 * Add travel time bindings for ride and freight modes, which are not actually network modes.

@@ -1,5 +1,5 @@
 JAR := matsim-gunma-*.jar
-V := v1.4
+V := v1.5
 
 p := input/$V
 gunma := ../shared-svn/projects/matsim-gunma/data
@@ -14,7 +14,7 @@ osmosis := osmosis
 SUMO_HOME := /Users/jakob/sumo
 
 # Scenario creation tool
-sc := java -Xms$(MEMORY) -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.prepare.RunOpenGunmaCalibration
+sc := java -Xms$(MEMORY) -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.run.RunOpenGunmaCalibration
 
 $(JAR):
 	mvn package
@@ -22,21 +22,33 @@ $(JAR):
 
 S := 1
 X := 0.01
-config: $p/gunma-$V-config.xml
-network: $p/gunma-$V-network.xml
-facilities: $p/gunma-$V-facilities.xml
-plans: $p/gunma-locations-$V-$Spct.plans.xml.gz
-plans_exp: $p/gunma-experienced-$V-$Spct.plans.xml.gz
+
+
+NETWORK_FINAL := $(p)/gunma-$V-network.xml.gz
+PLANS_FINAL := $(p)/gunma-$V-$Spct-plans.xml.gz
+FACILITIES_FINAL := $(p)/gunma-$V-$Spct-facilities.xml.gz
+CONFIG_FINAL := $(p)/gunma-$V-config.xml
+VEHICLES_FINAL := $(p)/gunma-$V-vehicleTypes.xml
+
+
+network: $(NETWORK_FINAL)
+vehicles : $(VEHICLES_FINAL)
+facilities: $(FACILITIES_FINAL)
+plans: $(PLANS_FINAL)
 
 
 ###############################################################
 ### A) CONFIG
 ###############################################################
 
-$p/gunma-$V-config.xml: $(gunma)/raw/matsim_inputs_lichen_luo/config_simulation.xml
-	$(sc) prepare prepare-config\
-    	 --input $<\
-    	 --output $@
+# 1) Change VERSION in OpenGunmaScenario
+# 2) make empty directory in input matching VERSION
+# 3) Run PrepareConfig
+
+#$(p)/gunma-$V-config.xml: $(gunma)/raw/matsim_inputs_lichen_luo/config_simulation.xml
+#	$(sc) prepare prepare-config\
+#    	 --input $<\
+#    	 --output $@
 
 ###############################################################
 ### B) NETWORK
@@ -52,7 +64,8 @@ $p/gunma-$V-config.xml: $(gunma)/raw/matsim_inputs_lichen_luo/config_simulation.
 # - japan-260210.osm.pbf is downloaded from geofabrik.
 # - The .poly files required for osmosis are created in the R script (process_census.R). They can also be made in QGIS.
 # Note: --wx creates a .osm output while --wb creates an .osm.pbf file
-$p/network.osm: $(gunma)/raw/01_shapefiles/osm_pbf_geofabrik/japan-260210.osm.pbf
+NETWORK_OSM := $(p)/b1_network.osm
+$(NETWORK_OSM): $(gunma)/raw/01_shapefiles/osm_pbf_geofabrik/japan-260210.osm.pbf
 
 	# Detailed network includes bikes as well
 	$(osmosis) --rb file=$<\
@@ -78,7 +91,8 @@ $p/network.osm: $(gunma)/raw/01_shapefiles/osm_pbf_geofabrik/japan-260210.osm.pb
 # Uses netconvert to create a SUMO network from the OSM file. We use the same parameters as in the Berlin scenario
 # We also reproject the network to a local coordinate system (EPSG:2450),
 # We also keep all attributes from OSM, which we will use later for filtering and for the location choice model.
-$p/sumo.net.xml: $p/network.osm
+NETWORK_SUMO := $(p)/b2_sumo.net.xml
+$(NETWORK_SUMO): $(NETWORK_OSM)
 	$(SUMO_HOME)/bin/netconvert --geometry.remove --ramps.guess --ramps.no-split\
 	 --type-files $(SUMO_HOME)/data/typemap/osmNetconvert.typ.xml\
 	 --tls.guess-signals true --tls.discard-simple --tls.join --tls.default-type actuated\
@@ -96,41 +110,21 @@ $p/sumo.net.xml: $p/network.osm
 
 
 ### B2) Create MATSim Network
-$p/gunma-$V-network.xml: $p/sumo.net.xml
+$(NETWORK_FINAL): $(NETWORK_SUMO)
 	$(sc) prepare network-from-sumo $< --target-crs EPSG:2450 --lane-restrictions REDUCE_CAR_LANES --output $@
 
 	$(sc) prepare clean-network $@  --output $@ --modes car,bike,ride,truck --remove-turn-restrictions
-
-
-#	$(sc) prepare reproject-network\
-#	 --input $@	--output $@\
-#	 --input-crs $(CRS) --target-crs $(CRS)\
-	 --mode truck=freight
-#
-#	$(sc) prepare apply-network-params freespeed capacity\
-# 	  --network $@ --output $@\
-#	  --input-features $p/berlin-$V-network-ft.csv.gz\
-#	  --model org.matsim.prepare.network.BerlinNetworkParams
-#
-#	$(sc) prepare apply-network-params capacity\
-# 	  --network $@ --output $@\
-#	  --input-features $p/berlin-$V-network-ft.csv.gz\
-#	  --road-types residential,living_street\
-#	  --capacity-bounds 0.3\
-#	  --model org.matsim.application.prepare.network.params.hbs.HBSNetworkParams\
-#	  --decrease-only
 
 
 ###############################################################
 ### C) VEHICLE TYPES
 ###############################################################
 
-xxx : $p/gunma-$V-vehicleTypes.xml
-$p/gunma-$V-vehicleTypes.xml:
+$(VEHICLES_FINAL):
 	$(sc) prepare prepare-vehicle-types --output $@
 
 ###############################################################
-### C) FACILITIES
+### D) FACILITIES
 ###############################################################
 # Inputs:
 # - jis_zones_75km_envelope.shp : is created by process_shape_files.Rmd (all JIS zones within the 75km envelope surrounding Gunma)
@@ -138,13 +132,14 @@ $p/gunma-$V-vehicleTypes.xml:
 # 	facility types within 75km of Gunma Prefecture.
 #	 --shp $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp \
 
-$p/gunma-$V-facilities.xml: $p/gunma-$V-network.xml
+FACILITIES_FULL := $(p)/d1_facilities-all.xml.gz
+$(FACILITIES_FULL): $(NETWORK_FINAL)
 	$(sc) prepare facilities-gunma --network $< \
 	 --telfacs $(gunma)/processed/facility_locations_yellowpages/facility_locations_yellowpages.csv \
 	 --output $@
 
 ###############################################################
-### D) POPULATION
+### E) POPULATION
 ###############################################################
 
 # 1) Merge Shapefiles for census data
@@ -159,11 +154,10 @@ $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m-2450.shp: $(gunma)/raw
 
 
 
-ddd: $p/gunma-static-$V-100pct.plans.xml.gz
-# 2) Generate static population plans
-#		--facilities $(word 3,$^) --facilities-attr resident\
-# input/facilities.gpkg
-$p/gunma-static-men-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m-2450.shp
+# 2) Create Male Population of Gunma
+# We split by gender because different columns in census table are used for men and women.
+PLANS_MEN := $(p)/e02_plans_men-100pct.xml.gz
+$(PLANS_MEN): $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m-2450.shp
 	$(sc) prepare gunma-population\
 		--input $<\
 		--sample 1.0\
@@ -171,7 +165,9 @@ $p/gunma-static-men-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q
 		--sex MALE\
 		--output $@
 
-$p/gunma-static-women-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m-2450.shp
+# 3) Create Female Population of Gunma
+PLANS_WOMEN := $(p)/e03_plans_women-100pct.xml.gz
+$(PLANS_WOMEN): $(gunma)/raw/microcensus/tblT001102Q10.txt $(gunma)/processed/01_shapefiles/mesh250m_census/mesh250m-2450.shp
 	$(sc) prepare gunma-population\
 		--input $<\
 		--sample 1.0\
@@ -179,37 +175,40 @@ $p/gunma-static-women-$V-100pct.plans.xml.gz: $(gunma)/raw/microcensus/tblT00110
 		--sex FEMALE\
 		--output $@
 
-$p/gunma-static-commuters-$V-100pct.plans.xml.gz: $(gunma)/processed/commuters_od_matrix/work_od_matrix_scaled.csv $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp
+# 4) Generate commuter population: people who live outside of Gunma prefecture but work in Gunma. We don't include age or gender for these agents.
+PLANS_COMMUTERS := $(p)/e04_plans_commuters-100pct.xml.gz
+$(PLANS_COMMUTERS): $(gunma)/processed/commuters_od_matrix/work_od_matrix_scaled.csv $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp
 	$(sc) prepare gunma-commuter\
 		--input $<\
 		--sample 1.0\
 		--shp $(word 2,$^) --shp-crs EPSG:2450\
 		--output $@
 
-
-$p/gunma-static-$V-100pct.plans.xml.gz:	$p/gunma-static-men-$V-100pct.plans.xml.gz  $p/gunma-static-women-$V-100pct.plans.xml.gz $p/gunma-static-commuters-$V-100pct.plans.xml.gz
+# 5) Merge populations, and add JIS codes for home locations.
+PLANS_STATIC_100 := $(p)/e05_plans_static-100pct.xml.gz
+$(PLANS_STATIC_100): $(PLANS_MEN)  $(PLANS_WOMEN) $(PLANS_COMMUTERS)
 	$(sc) prepare merge-populations $^\
 		--output $@
 
-	#rm $p/gunma-static-women-$V-100pct.plans.xml.gz
-	#rm $p/gunma-static-men-$V-100pct.plans.xml.gz
-
 	$(sc) prepare lookup-jis-code --input $@ --output $@ --shp $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp
 
-
-# 3) Downsample to 25% and 1%
-$p/gunma-static-$V-$Spct.plans.xml.gz: $p/gunma-static-$V-100pct.plans.xml.gz
+# 6) Downsample (e.g. to 25% or 1%)
+PLANS_STATIC = $(p)/e05_plans_static-$Spct.xml.gz
+$(PLANS_STATIC): $(PLANS_STATIC_100)
 	$(sc) prepare downsample-population $< \
 		--sample-size 1.0 \
 		--samples $X
 
-# 3) Assign daily plan to each MATSim Agent
+
+
+# 7) Assign daily plan to each MATSim Agent
 # Here we match MATSim agents with travel survey respondents, based on their age and gender. The daily plan
 # from the travel survey respondent is copied to the MATSim agent, but the locations are deleted.
 # TODO: I don't understand why assign-reference-population is necessary - it seems to be doing the same thing as activity-sampling. It even calls upon that class... I'm gonna skip it for now until I understand better
 # NOTE: We we hardcoded in the City/District Divide; this only works for Gunma.
 # NOTE: We ignore employment for now, because we haven't included it into our static population as of yet.
-$p/gunma-activities-$V-$Spct.plans.xml.gz: $p/gunma-static-$V-$Spct.plans.xml.gz $(gunma)/processed/travel_survey/person_attributes.csv $(gunma)/processed/travel_survey/activities.csv
+PLANS_ACTS := $(p)/e07_plans_activities-$Spct.xml.gz
+$(PLANS_ACTS): $(PLANS_STATIC) $(gunma)/processed/travel_survey/person_attributes.csv $(gunma)/processed/travel_survey/activities.csv
 	$(sc) prepare activity-sampling \
 		--seed 1 \
  		--input $< \
@@ -217,18 +216,10 @@ $p/gunma-activities-$V-$Spct.plans.xml.gz: $p/gunma-static-$V-$Spct.plans.xml.gz
  		--persons $(word 2,$^)\
  		--activities $(word 3,$^)
 
-	#$(sc) prepare assign-reference-population --population $@ --output $@\
-#	 --persons src/main/python/table-persons.csv\
-#  	 --activities src/main/python/table-activities.csv\
-#  	 --shp $(germany)/../matsim-berlin/data/SrV/zones/zones.shp\
-#  	 --shp-crs $(CRS)\
-#	 --facilities $(word 2,$^)\
-#	 --network $(word 3,$^)\
 
-
-
-# 4) Location Choice
-$p/gunma-locations-$V-$Spct.plans.xml.gz: $p/gunma-activities-$V-$Spct.plans.xml.gz $p/gunma-$V-facilities.xml $p/gunma-$V-network.xml $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp $(gunma)/processed/commuters_od_matrix/work_od_matrix_scaled.csv
+# 8) Location Choice
+PLANS_LOCS := $(p)/e08_plans_locations-$Spct.xml.gz
+$(PLANS_LOCS): $(PLANS_ACTS) $(FACILITIES_FULL) $(p)/gunma-$V-network.xml.gz $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp $(gunma)/processed/commuters_od_matrix/work_od_matrix_scaled.csv
 	$(sc) prepare init-location-choice \
 	 --input $< \
 	 --output $@ \
@@ -239,28 +230,29 @@ $p/gunma-locations-$V-$Spct.plans.xml.gz: $p/gunma-activities-$V-$Spct.plans.xml
 	 --sample $X \
 	 --k 5
 
-# 5) Eval Run
-$p/gunma-experienced-$V-$Spct.plans.xml.gz: $p/gunma-$V-config.xml $p/gunma-locations-$V-$Spct.plans.xml.gz
-	$(sc) run --$Spct --config $< --population $(word 2,$^) --mode eval
+# 9) Eval Run (O iterations) because we need experienced plans for the next step.
+# Note: I am not actually using the inputs because the path needs to be slightly different :/
+PLANS_EXP := $(p)/e09_plans_experienced-$Spct.xml.gz
+$(PLANS_EXP): $(p)/gunma-$V-config.xml $(PLANS_LOCS) $(FACILITIES_FULL) $(VEHICLES_FINAL)
+	$(sc) run \
+	--$Spct \
+	--config $< \
+	--population $(word 2,$^) \
+	--facilities $(word 3,$^) \
+	--mode eval
 
 	cp output/eval.output_experienced_plans.xml.gz $@
 
-
-###############################################################
-### E) C A D Y T S
-###############################################################
-
-ERROR_METRIC ?= log_error
-
-# 1) Create the counts file required for cadyts
-xxx: $p/gunma-$V-counts-mlit.xml.gz
-
-$p/gunma-$V-counts-mlit.xml.gz: $(gunma)/processed/roadcounts/matsim_linkId_to_roadcounts.csv
+# 10) Create the counts file required for location choice
+$(p)/gunma-$V-counts-mlit.xml.gz: $(gunma)/processed/roadcounts/matsim_linkId_to_roadcounts.csv
 	$(sc) prepare counts-from-mlit --input $< --output $@
 
 
-# 2) create $p/gunma-$V-$Spct.plans_selection_$(ERROR_METRIC).csv, which specifies for each agent, which is the best plan
-$p/gunma-$V-$Spct.plans_selection_$(ERROR_METRIC).csv: $p/gunma-experienced-$V-$Spct.plans.xml.gz $p/gunma-$V-network.xml $p/gunma-$V-counts-mlit.xml.gz
+# 11) create $(p)/gunma-$V-$Spct.plans_selection_$(ERROR_METRIC).csv, which specifies for each agent, which is the best plan
+
+ERROR_METRIC ?= log_error
+PLANS_SELECTION_CSV := $(p)/e11_plans_selection_$(ERROR_METRIC)-$Spct.csv
+$(PLANS_SELECTION_CSV): $(PLANS_EXP) $(p)/gunma-$V-network.xml.gz $(p)/gunma-$V-counts-mlit.xml.gz
 	$(sc) prepare run-count-opt\
 	 --input $<\
 	 --network $(word 2,$^)\
@@ -270,54 +262,51 @@ $p/gunma-$V-$Spct.plans_selection_$(ERROR_METRIC).csv: $p/gunma-experienced-$V-$
 	 --metric $(ERROR_METRIC)
 
 
-# 3) filter the plans to only include the best plan
-$p/gunma-$V-$Spct.plans_$(ERROR_METRIC).xml.gz : $p/gunma-locations-$V-$Spct.plans.xml.gz $p/gunma-$V-$Spct.plans_selection_$(ERROR_METRIC).csv
+# 12) filter the plans to only include the best plan
+PLANS_SELECTION_XML := $(p)/e12_plans_selection_$(ERROR_METRIC)-$Spct.xml.gz
+$(PLANS_SELECTION_XML) : $(PLANS_LOCS) $(PLANS_SELECTION_CSV)
 	$(sc) prepare select-plans-idx\
  	 --input $< \
  	 --csv $(word 2,$^)\
  	 --output $@
 
 
-# 4) run 20 iterations with route choice.
-output/eval-$(ERROR_METRIC) : $p/gunma-$V-config.xml $p/gunma-$V-$Spct.plans_$(ERROR_METRIC).xml.gz
+# 13) run 20 iterations with route choice.
+output/eval-$(ERROR_METRIC) : $(p)/gunma-$V-config.xml $(PLANS_SELECTION_XML) $(FACILITIES_FULL)
 	$(sc) run \
 	 --mode "routeChoice" \
 	 --iterations 20 \
 	 --output $@ \
 	 --$Spct \
 	 --population $(word 2,$^) \
+	 --facilities $(word 3,$^) \
 	 --config $<
 
 
-
-
-# I'm not sure if the following code is an alternative to the above code, or if it complements it.
-#$p/gunma-$V-$Spct.plans_cadyts.xml.gz:
-#	$(sc) prepare extract-plans-idx\
-#	 --input output/cadyts/cadyts.output_plans.xml.gz\
-#	 --output $p/gunma-$V-$Spct.plans_selection_cadyts.csv
-#
-#	$(sc) prepare select-plans-idx\
-#	 --input $p/gunma-cadyts-input-$V-$Spct.plans.xml.gz\
-#	 --csv $p/gunma-$V-$Spct.plans_selection_cadyts.csv\
-#	 --output $@
-
-
-### Prepare Initial plans
-
-
+# 14) Prepare Initial plans
 # A) When I created the commuters's daily plans, I didn't add any start_time to work or home, because it depends on how long
 # they have to travel. Now that some iterations have run through, I've added start times based on the trip to that activity.
 # B) Splits activity types into type_DURATION
-qqq: $p/gunma-$V-$Spct.plans-initial.xml.gz
-$p/gunma-$V-$Spct.plans-initial.xml.gz: output/eval-$(ERROR_METRIC)
+$(PLANS_FINAL): output/eval-$(ERROR_METRIC)
 	$(sc) prepare amend-start-time-commuters \
 	--input $</routeChoice.output_selected_plans.xml.gz --output $@
 
 	$(sc) prepare split-activity-types-duration \
 	 --input $@ --output $@
 
+###############################################################
+### D-part2) FACILITIES
+###############################################################
+
+$(FACILITIES_FINAL): $(FACILITIES_FULL) $(PLANS_FINAL)
+	$(sc) prepare facilities-filter --input $< \
+	 --plans $(word 2,$^) \
+	 --output $@
+
+
 #### DASHBOARD
 output/dashboard-1.yaml:
 	$(sc) prepare gunma-dashboard output/
+
+
 

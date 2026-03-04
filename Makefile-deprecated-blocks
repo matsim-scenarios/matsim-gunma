@@ -118,3 +118,48 @@
 #	-sql "SELECT a.* FROM jis_zones a, 'gunma_75km_envelope'.gunma_75km_envelope b WHERE ST_Within(a.geometry, b.geometry)" \
 #	$(gunma)/processed/01_shapefiles/study_area_boundary/gunma_75km_envelope.shp
 #
+
+
+### NETWORK
+
+#	$(sc) prepare reproject-network\
+#	 --input $@	--output $@\
+#	 --input-crs $(CRS) --target-crs $(CRS)\
+	 --mode truck=freight
+#
+#	$(sc) prepare apply-network-params freespeed capacity\
+# 	  --network $@ --output $@\
+#	  --input-features $p/berlin-$V-network-ft.csv.gz\
+#	  --model org.matsim.prepare.network.BerlinNetworkParams
+#
+#	$(sc) prepare apply-network-params capacity\
+# 	  --network $@ --output $@\
+#	  --input-features $p/berlin-$V-network-ft.csv.gz\
+#	  --road-types residential,living_street\
+#	  --capacity-bounds 0.3\
+#	  --model org.matsim.application.prepare.network.params.hbs.HBSNetworkParams\
+#	  --decrease-only
+
+
+# POPULATION
+	#$(sc) prepare assign-reference-population --population $@ --output $@\
+#	 --persons src/main/python/table-persons.csv\
+#  	 --activities src/main/python/table-activities.csv\
+#  	 --shp $(germany)/../matsim-berlin/data/SrV/zones/zones.shp\
+#  	 --shp-crs $(CRS)\
+#	 --facilities $(word 2,$^)\
+#	 --network $(word 3,$^)\
+
+
+
+
+# I'm not sure if the following code is an alternative to the above code, or if it complements it.
+#$p/gunma-$V-$Spct.plans_cadyts.xml.gz:
+#	$(sc) prepare extract-plans-idx\
+#	 --input output/cadyts/cadyts.output_plans.xml.gz\
+#	 --output $p/gunma-$V-$Spct.plans_selection_cadyts.csv
+#
+#	$(sc) prepare select-plans-idx\
+#	 --input $p/gunma-cadyts-input-$V-$Spct.plans.xml.gz\
+#	 --csv $p/gunma-$V-$Spct.plans_selection_cadyts.csv\
+#	 --output $@

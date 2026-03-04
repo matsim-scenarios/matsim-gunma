@@ -23,7 +23,6 @@ import org.matsim.contrib.cadyts.car.CadytsContext;
 import org.matsim.contrib.cadyts.general.CadytsScoring;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
-import org.matsim.core.config.groups.QSimConfigGroup;
 import org.matsim.core.config.groups.ReplanningConfigGroup;
 import org.matsim.core.config.groups.RoutingConfigGroup;
 import org.matsim.core.config.groups.VspExperimentalConfigGroup;
@@ -45,9 +44,7 @@ import org.matsim.core.scoring.SumScoringFunction;
 import org.matsim.core.scoring.functions.ScoringParametersForPerson;
 import org.matsim.core.utils.geometry.CoordUtils;
 import org.matsim.dashboard.GunmaSimwrapperRunner;
-import org.matsim.prepare.config.PrepareConfig;
 import org.matsim.prepare.counts.CreateCountsFromMlitData;
-import org.matsim.prepare.facilities.CreateMATSimFacilities;
 import org.matsim.prepare.facilities.CreateMATSimFacilitiesGunma;
 import org.matsim.prepare.opt.RunCountOptimization;
 import org.matsim.prepare.opt.SelectPlansFromIndex;
@@ -67,16 +64,18 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+import static org.matsim.run.OpenGunmaScenario.*;
+
 /**
  * This scenario class is used for run a MATSim scenario in various stages of the calibration process.
  */
 @CommandLine.Command(header = ":: Open Gunma Calibration ::", mixinStandardHelpOptions = true)
-@MATSimApplication.Prepare({PrepareConfig.class, GunmaSimwrapperRunner.class,
+@MATSimApplication.Prepare({GunmaSimwrapperRunner.class,
 	CreateLandUseShp.class, CreateGunmaPopulation.class, CreateGunmaCommuterPopulation.class, MergePopulations.class,
 	DownSamplePopulation.class,
 	CreateNetworkFromSumo.class, CreateTransitScheduleFromGtfs.class,
 	CleanNetwork.class, RunActivitySampling.class, InitLocationChoice.class,
-	CreateMATSimFacilities.class, CreateMATSimFacilitiesGunma.class, LookupJisZone.class, CreateCountsFromMlitData.class,
+	CreateMATSimFacilitiesGunma.class, LookupJisZone.class, CreateCountsFromMlitData.class,
 	RunCountOptimization.class, SelectPlansFromIndex.class, SplitActivityTypesDuration.class, AmendStartTimeCommuters.class, PrepareVehicleTypes.class})
 
 
@@ -94,13 +93,15 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 	public static final Set<String> FLEXIBLE_ACTS = Set.of(Activities.other.name());
 	private static final Logger log = LogManager.getLogger(RunOpenGunmaCalibration.class);
 	@CommandLine.Mixin
-	private final SampleOptions sample = new SampleOptions(25, 10, 3, 1);
+	private final SampleOptions sample = new SampleOptions(25, 10, 1);
 	@CommandLine.Option(names = "--mode", description = "Calibration mode that should be run.")
 	private CalibrationMode mode;
 	@CommandLine.Option(names = "--weight", description = "Strategy weight.", defaultValue = "1")
 	private double weight;
 	@CommandLine.Option(names = "--population", description = "Path to population.")
 	private Path populationPath;
+	@CommandLine.Option(names = "--facilities", description = "Path to facilities.")
+	private Path facilitiesPath;
 	@CommandLine.Option(names = "--all-car", description = "All plans will use car mode. Capacity is adjusted automatically by " + CAR_FACTOR, defaultValue = "false")
 	private boolean allCar;
 
@@ -110,6 +111,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 	@CommandLine.Option(names = "--plan-index", description = "Only use one plan with specified index")
 	private Integer planIndex;
 	private final boolean simwrapperOn = false;
+	boolean removePt = true;
 
 
 	public RunOpenGunmaCalibration() {
@@ -151,37 +153,37 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 	@SuppressWarnings("JavaNCSS")
 	protected Config prepareConfig(Config config) {
 
-//		List<String> relevantSubpopulations = List.of("person", "commercialPersonTraffic", "commercialPersonTraffic_service", "goodsTraffic");
-		List<String> relevantSubpopulations = List.of("person", "commuter2gunma");
+		log.info("Running {} calibration {}", mode, populationPath);
 
-
+		// Override Inputs in Config
 		if (populationPath == null) {
 			throw new IllegalArgumentException("Population path is required [--population]");
+		} else {
+			config.plans().setInputFile(populationPath.getFileName().toString());
 		}
 
-
-		config.vehicles().setVehiclesFile("gunma-v" + OpenGunmaScenario.VERSION + "-vehicleTypes.xml");
-		config.qsim().setVehiclesSource(QSimConfigGroup.VehiclesSource.modeVehicleTypesFromVehiclesData);
-		config.qsim().setUsePersonIdForMissingVehicleId(false);
+		if (facilitiesPath != null) {
+			config.facilities().setInputFile(facilitiesPath.getFileName().toString());
+		}
 
 		config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.deleteDirectoryIfExists);
 
-		log.info("Running {} calibration {}", mode, populationPath);
-
-		config.plans().setInputFile(populationPath.getFileName().toString());
 		config.controller().setRunId(mode.toString());
 		config.scoring().setWriteExperiencedPlans(true);
 
+		config.controller().setLastIteration(10);
+		config.vspExperimental().setVspDefaultsCheckingLevel(VspExperimentalConfigGroup.VspDefaultsCheckingLevel.warn);
+
+
+		// remove PT from config
+		if (removePt) {
+			removePtFromConfig(config);
+		}
+
 		// Location choice does not work with the split types
-		Activities.addScoringParams(config, mode != CalibrationMode.locationChoice);
+		Activities.addScoringParams(config, true);
 
 		SimWrapperConfigGroup sw = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
-
-		config.replanningAnnealer().setActivateAnnealingModule(false);
-		config.replanning().setFractionOfIterationsToDisableInnovation(0.7);
-		config.scoring().setFractionOfIterationsToStartScoreMSA(0.7);
-
-
 		if (sample.isSet()) {
 			double sampleSize = sample.getSample();
 			double countScale = allCar ? CAR_FACTOR : 1;
@@ -194,6 +196,8 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 			config.plans().setInputFile(sample.adjustName(config.plans().getInputFile()));
 
 			sw.setSampleSize(sampleSize * countScale);
+
+			config.controller().setOutputDirectory(sample.adjustName(config.controller().getOutputDirectory()));
 
 		}
 
@@ -231,6 +235,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 		}
 
 		// Required for all calibration strategies
+		List<String> relevantSubpopulations = List.of("person", "commuter2gunma");
 		for (String subpopulation : relevantSubpopulations) {
 			config.replanning().addStrategySettings(
 				new ReplanningConfigGroup.StrategySettings()
@@ -243,40 +248,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 		if (mode == null)
 			throw new IllegalArgumentException("Calibration mode [--mode} not set!");
 
-		// this is deprecated apparently
-		if (mode == CalibrationMode.locationChoice) {
-
-//			config.replanning().addStrategySettings(new ReplanningConfigGroup.StrategySettings()
-//				.setStrategyName(FrozenTastes.LOCATION_CHOICE_PLAN_STRATEGY)
-//				.setWeight(weight)
-//				.setSubpopulation("person")
-//			);
-//
-//			config.replanning().addStrategySettings(new ReplanningConfigGroup.StrategySettings()
-//				.setStrategyName(DefaultPlanStrategiesModule.DefaultStrategy.ReRoute)
-//				.setWeight(weight / 5)
-//				.setSubpopulation("person")
-//			);
-//
-//			// Overwrite these to fix scoring warnings
-//			config.scoring().addActivityParams(new ScoringConfigGroup.ActivityParams("work").setTypicalDuration(8 * 3600));
-//			config.scoring().addActivityParams(new ScoringConfigGroup.ActivityParams("pt interaction").setTypicalDuration(30));
-//
-//			config.vspExperimental().setAbleToOverwritePtInteractionParams(true);
-//
-//			config.replanning().setFractionOfIterationsToDisableInnovation(0.8);
-//			config.scoring().setFractionOfIterationsToStartScoreMSA(0.8);
-//
-//			FrozenTastesConfigGroup dccg = ConfigUtils.addOrGetModule(config, FrozenTastesConfigGroup.class);
-//
-//			dccg.setEpsilonScaleFactors(FLEXIBLE_ACTS.stream().map(s -> "1.0").collect(Collectors.joining(",")));
-//			dccg.setAlgorithm(FrozenTastesConfigGroup.Algotype.bestResponse);
-//			dccg.setFlexibleTypes(String.join(",", FLEXIBLE_ACTS));
-//			dccg.setTravelTimeApproximationLevel(FrozenTastesConfigGroup.ApproximationLevel.localRouting);
-//			dccg.setRandomSeed(2);
-//			dccg.setDestinationSamplePercent(25);
-
-		} else if (mode == CalibrationMode.cadyts) {
+		if (mode == CalibrationMode.cadyts) {
 
 			// Re-route for all populations
 			for (String subpopulation : relevantSubpopulations) {
@@ -286,11 +258,12 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 					.setSubpopulation(subpopulation)
 				);
 			}
+			double performingUtilsHr = config.scoring().getPerforming_utils_hr();
 
 			// Agents should generally use the faster routes, this is without any mode choice
 			config.scoring().getModes().values().forEach(m -> {
 				// Only time goes into the score
-				m.setMarginalUtilityOfTraveling(-config.scoring().getPerforming_utils_hr());
+				m.setMarginalUtilityOfTraveling(-performingUtilsHr);
 				m.setConstant(0);
 				m.setMarginalUtilityOfDistance(0);
 				m.setDailyMonetaryConstant(0);
@@ -298,7 +271,6 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 				m.setMonetaryDistanceRate(0);
 			});
 
-			config.controller().setRunId("cadyts");
 			config.controller().setOutputDirectory("./output/cadyts-" + scaleFactor);
 
 			// Need to store more plans because of plan types
@@ -337,13 +309,18 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 	protected void prepareScenario(Scenario scenario) {
 
 
-//		if (mode == CalibrationMode.cadyts)
+		if (removePt) {
+			removePtFromScenario(scenario);
+		}
+
+
+		if (mode == CalibrationMode.cadyts)
 //			 each initial plan needs a separate type, so it won't be removed
-//			for (Person person : scenario.getPopulation().getPersons().values()) {
-//				for (int i = 0; i < person.getPlans().size(); i++) {
-//					person.getPlans().get(i).setType(String.valueOf(i));
-//				}
-//			}
+			for (Person person : scenario.getPopulation().getPersons().values()) {
+				for (int i = 0; i < person.getPlans().size(); i++) {
+					person.getPlans().get(i).setType(String.valueOf(i));
+				}
+			}
 
 		if (planIndex != null) {
 
@@ -407,18 +384,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 	@Override
 	protected void prepareControler(Controler controler) {
 
-		if (mode == CalibrationMode.locationChoice) {
-//			FrozenTastes.configure(controler);
-//
-//			controler.addOverridingModule(new AbstractModule() {
-//				@Override
-//				public void install() {
-//					binder().bind(new TypeLiteral<StrategyChooser<Plan, Person>>() {
-//					}).toInstance(new ForceInnovationStrategyChooser<>(5, ForceInnovationStrategyChooser.Permute.no));
-//				}
-//			});
-
-		} else if (mode == CalibrationMode.cadyts) {
+		if (mode == CalibrationMode.cadyts) {
 
 			controler.addOverridingModule(new CadytsCarModule());
 			controler.setScoringFunctionFactory(new ScoringFunctionFactory() {
@@ -497,8 +463,6 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 	 */
 	public enum CalibrationMode {
 		eval,
-		@Deprecated
-		locationChoice,
 		cadyts,
 		routeChoice
 	}

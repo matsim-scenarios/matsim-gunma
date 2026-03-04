@@ -25,7 +25,7 @@
 	<description>A transport model of Gunma Prefecture in Japan</description>
 
 	<properties>
-		<main.class>org.matsim.run.RunGunmaScenario</main.class>
+		<main.class>org.matsim.run.RunOpenGunmaScenario</main.class>
 
 		<!-- Don't modify, will use the same version as parent -->
 		<matsim.version>${project.parent.version}</matsim.version>
@@ -87,7 +87,24 @@
 			<artifactId>vsp</artifactId>
 			<version>${matsim.version}</version>
 			<scope>compile</scope>
+			<exclusions>
+				<exclusion>
+					<groupId>xerces</groupId>
+					<artifactId>xercesImpl</artifactId>
+				</exclusion>
+				<exclusion>
+					<groupId>xml-apis</groupId>
+					<artifactId>xml-apis</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
+<!--		<dependency>-->
+<!--			<groupId>org.matsim.contrib</groupId>-->
+<!--			<artifactId>bicycle</artifactId>-->
+<!--			<version>${matsim.version}</version>-->
+<!--			<scope>compile</scope>-->
+<!--		</dependency>-->
+
 
 
 		<!-- Custom dependencies -->
@@ -147,7 +164,7 @@
 		</dependency>
 
 
-        <!--        <dependency>-->
+		<!--        <dependency>-->
 <!--            <groupId>org.matsim.contrib</groupId>-->
 <!--            <artifactId>bicycle</artifactId>-->
 <!--            <version>2026.0-PR4282</version>-->
