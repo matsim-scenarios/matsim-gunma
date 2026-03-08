@@ -44,7 +44,7 @@ public final class PrepareConfig {
 
 		// ############
 		// facilities
-		config.facilities().setInputFile("gunma-v" + OpenGunmaScenario.VERSION + "-facilities.xml.gz");
+		config.facilities().setInputFile("gunma-v" + OpenGunmaScenario.VERSION + "-100pct-facilities.xml.gz");
 		config.facilities().setFacilitiesSource(FacilitiesConfigGroup.FacilitiesSource.fromFile);
 
 		// ############

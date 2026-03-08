@@ -3,5 +3,5 @@ v1.1: uses telephone book for locations choice (for work, edu, and other). Still
 v1.2: adds census data regarding commuter flow
 v1.3: adds new network, adds counts
 v1.4: adds commuters into Gunma
-v1.5:
+v1.5: cleaned up makefile pipeline. ready for calibration
 

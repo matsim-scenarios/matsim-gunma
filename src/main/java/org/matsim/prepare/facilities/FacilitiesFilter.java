@@ -12,6 +12,7 @@ import org.matsim.core.population.io.PopulationReader;
 import org.matsim.core.router.TripStructureUtils;
 import org.matsim.core.scenario.ScenarioUtils;
 import org.matsim.facilities.*;
+import org.matsim.run.Activities;
 import picocli.CommandLine;
 import tech.tablesaw.api.*;
 
@@ -54,7 +55,9 @@ public class FacilitiesFilter implements MATSimAppCommand {
 		for (Person person : scenario.getPopulation().getPersons().values()) {
 			List<Activity> activities = TripStructureUtils.getActivities(person.getSelectedPlan(), TripStructureUtils.StageActivityHandling.ExcludeStageActivities);
 			for (Activity activity : activities) {
-				relevantFacilities.add(activity.getFacilityId());
+				if (!activity.getType().equals(Activities.home.name())) {
+					relevantFacilities.add(activity.getFacilityId());
+				}
 			}
 		}
 
@@ -64,7 +67,11 @@ public class FacilitiesFilter implements MATSimAppCommand {
 		ActivityFacilities facilitiesFiltered = FacilitiesUtils.createActivityFacilities();
 
 		for (Id<ActivityFacility> facilityId : relevantFacilities) {
-			facilitiesFiltered.addActivityFacility(facilitiesFull.getFacilities().get(facilityId));
+			ActivityFacility facility = facilitiesFull.getFacilities().get(facilityId);
+			if (facility != null) {
+				facilitiesFiltered.addActivityFacility(facility);
+
+			}
 		}
 
 

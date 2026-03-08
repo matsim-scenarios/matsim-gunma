@@ -46,6 +46,7 @@ import org.matsim.core.utils.geometry.CoordUtils;
 import org.matsim.dashboard.GunmaSimwrapperRunner;
 import org.matsim.prepare.counts.CreateCountsFromMlitData;
 import org.matsim.prepare.facilities.CreateMATSimFacilitiesGunma;
+import org.matsim.prepare.facilities.FacilitiesFilter;
 import org.matsim.prepare.opt.RunCountOptimization;
 import org.matsim.prepare.opt.SelectPlansFromIndex;
 import org.matsim.prepare.population.*;
@@ -75,7 +76,7 @@ import static org.matsim.run.OpenGunmaScenario.*;
 	DownSamplePopulation.class,
 	CreateNetworkFromSumo.class, CreateTransitScheduleFromGtfs.class,
 	CleanNetwork.class, RunActivitySampling.class, InitLocationChoice.class,
-	CreateMATSimFacilitiesGunma.class, LookupJisZone.class, CreateCountsFromMlitData.class,
+	CreateMATSimFacilitiesGunma.class, FacilitiesFilter.class, LookupJisZone.class, CreateCountsFromMlitData.class,
 	RunCountOptimization.class, SelectPlansFromIndex.class, SplitActivityTypesDuration.class, AmendStartTimeCommuters.class, PrepareVehicleTypes.class})
 
 
@@ -184,6 +185,9 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 		Activities.addScoringParams(config, true);
 
 		SimWrapperConfigGroup sw = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
+		sw.setDefaultDashboards(SimWrapperConfigGroup.DefaultDashboardsMode.disabled);
+
+
 		if (sample.isSet()) {
 			double sampleSize = sample.getSample();
 			double countScale = allCar ? CAR_FACTOR : 1;

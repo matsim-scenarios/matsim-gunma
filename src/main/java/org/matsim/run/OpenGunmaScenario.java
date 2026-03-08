@@ -11,7 +11,6 @@ import org.matsim.application.options.SampleOptions;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.config.groups.ReplanningConfigGroup;
-import org.matsim.core.config.groups.ScoringConfigGroup;
 import org.matsim.core.config.groups.VspExperimentalConfigGroup;
 import org.matsim.core.controler.AbstractModule;
 import org.matsim.core.controler.Controler;
@@ -19,7 +18,6 @@ import org.matsim.core.replanning.strategies.DefaultPlanStrategiesModule;
 
 import org.matsim.core.router.TripStructureUtils;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
-import org.matsim.simwrapper.SimWrapperModule;
 import picocli.CommandLine;
 
 import java.util.HashSet;
@@ -35,10 +33,10 @@ public class OpenGunmaScenario extends MATSimApplication {
 	private final boolean removePt = true;
 
 	@CommandLine.Mixin
-	private final SampleOptions sample = new SampleOptions(25, 10, 1);
+	private SampleOptions sample = new SampleOptions(25, 10, 1);
 
 	@CommandLine.Option(names = "--plan-selector", description = "Plan selector to use.")
-	private final String planSelector = DefaultPlanStrategiesModule.DefaultSelector.ChangeExpBeta;
+	private String planSelector = DefaultPlanStrategiesModule.DefaultSelector.ChangeExpBeta;
 
 	public OpenGunmaScenario() {
 		super(ConfigUtils.loadConfig(String.format("input/v%s/gunma-v%s-config.xml", VERSION, VERSION)));
@@ -50,19 +48,64 @@ public class OpenGunmaScenario extends MATSimApplication {
 	}
 
 
+	public static void removePtFromScenario(Scenario scenario) {
+		Set<Id<Person>> ptPersons = new HashSet<>();
+		outer:
+		for (Person person : scenario.getPopulation().getPersons().values()) {
+			for (Leg leg : TripStructureUtils.getLegs(person.getSelectedPlan())) {
+
+				if (leg.getMode().equals(TransportMode.pt)) {
+					ptPersons.add(person.getId());
+					continue outer;
+				}
+			}
+		}
+
+		for (Id<Person> personId : ptPersons) {
+
+			scenario.getPopulation().getPersons().remove(personId);
+		}
+	}
+
+	public static void removePtFromConfig(Config config) {
+		config.routing().removeTeleportedModeParams(TransportMode.pt);
+		config.changeMode().setModes(List.of(TransportMode.car).toArray(new String[0]));
+
+		config.scoring().removeParameterSet(config.scoring().getActivityParams("pt interaction"));
+		config.subtourModeChoice().setModes(List.of(TransportMode.car, TransportMode.walk, TransportMode.bike, TransportMode.ride).toArray(new String[0]));
+	}
+
+	static void modifyForSample(Config config, SimWrapperConfigGroup sw, SampleOptions sample) {
+		double sampleSize = sample.getSample();
+
+		config.qsim().setFlowCapFactor(sampleSize);
+		config.qsim().setStorageCapFactor(sampleSize);
+
+		// Counts can be scaled with sample size
+		config.counts().setCountsScaleFactor(sampleSize);
+		sw.setSampleSize(sampleSize);
+
+		config.controller().setRunId(sample.adjustName(config.controller().getRunId()));
+		config.controller().setOutputDirectory(sample.adjustName(config.controller().getOutputDirectory()));
+		config.plans().setInputFile(sample.adjustName(config.plans().getInputFile()));
+		config.facilities().setInputFile(sample.adjustName(config.facilities().getInputFile()));
+	}
+
 
 	@Override
 	protected Config prepareConfig(Config config) {
 		// general
 
-		config.controller().setLastIteration(10);
+		config.controller().setLastIteration(500);
 		config.vspExperimental().setVspDefaultsCheckingLevel(VspExperimentalConfigGroup.VspDefaultsCheckingLevel.warn);
 
 		// adjust  files and for sample
 		SimWrapperConfigGroup sw = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
 
+		sw.setDefaultDashboards(SimWrapperConfigGroup.DefaultDashboardsMode.disabled);
+
 		if (sample.isSet()) {
-			modifyForSample(config, sw,sample);
+			modifyForSample(config, sw, sample);
 		}
 
 		// remove PT from config
@@ -109,29 +152,6 @@ public class OpenGunmaScenario extends MATSimApplication {
 		return config;
 	}
 
-	public static void removePtFromConfig(Config config) {
-		config.routing().removeTeleportedModeParams(TransportMode.pt);
-		config.changeMode().setModes(List.of(TransportMode.car).toArray(new String[0]));
-
-		config.scoring().removeParameterSet(config.scoring().getActivityParams("pt interaction"));
-		config.subtourModeChoice().setModes(List.of(TransportMode.car, TransportMode.walk, TransportMode.bike).toArray(new String[0]));
-	}
-
-	static void modifyForSample(Config config, SimWrapperConfigGroup sw, SampleOptions sample) {
-		double sampleSize = sample.getSample();
-
-		config.qsim().setFlowCapFactor(sampleSize);
-		config.qsim().setStorageCapFactor(sampleSize);
-
-		// Counts can be scaled with sample size
-		config.counts().setCountsScaleFactor(sampleSize);
-		sw.setSampleSize(sampleSize);
-
-		config.controller().setRunId(sample.adjustName(config.controller().getRunId()));
-		config.controller().setOutputDirectory(sample.adjustName(config.controller().getOutputDirectory()));
-		config.plans().setInputFile(sample.adjustName(config.plans().getInputFile()));
-	}
-
 	@Override
 	protected void prepareScenario(Scenario scenario) {
 		if (removePt) {
@@ -140,29 +160,12 @@ public class OpenGunmaScenario extends MATSimApplication {
 		}
 	}
 
-	public static void removePtFromScenario(Scenario scenario) {
-		Set<Id<Person>> ptPersons = new HashSet<>();
-		outer:
-		for (Person person : scenario.getPopulation().getPersons().values()) {
-			for (Leg leg : TripStructureUtils.getLegs(person.getSelectedPlan())) {
 
-				if (leg.getMode().equals(TransportMode.pt)) {
-					ptPersons.add(person.getId());
-					continue outer;
-				}
-			}
-		}
-
-		for (Id<Person> personId : ptPersons) {
-
-			scenario.getPopulation().getPersons().remove(personId);
-		}
-	}
 
 	@Override
 	protected void prepareControler(Controler controler) {
 
-		controler.addOverridingModule(new SimWrapperModule());
+//		controler.addOverridingModule(new SimWrapperModule());
 //
 //		controler.addOverridingModule(new TravelTimeBinding());
 //

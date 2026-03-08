@@ -14,7 +14,7 @@ osmosis := osmosis
 SUMO_HOME := /Users/jakob/sumo
 
 # Scenario creation tool
-sc := java -Xms$(MEMORY) -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.run.RunOpenGunmaCalibration
+sc := java -Xms$(MEMORY) -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.prepare.RunOpenGunmaCalibration
 
 $(JAR):
 	mvn package
@@ -109,11 +109,14 @@ $(NETWORK_SUMO): $(NETWORK_OSM)
 
 
 
-### B2) Create MATSim Network
+### B3) Create MATSim Network
 $(NETWORK_FINAL): $(NETWORK_SUMO)
 	$(sc) prepare network-from-sumo $< --target-crs EPSG:2450 --lane-restrictions REDUCE_CAR_LANES --output $@
 
 	$(sc) prepare clean-network $@  --output $@ --modes car,bike,ride,truck --remove-turn-restrictions
+
+	mv $(p)/gunma-$V-network-ft.csv.gz $(p)/b3_network-ft.csv.gz
+	mv $(p)/gunma-$V-network-linkGeometries.csv $(p)/b3_network-linkGeometries.csv
 
 
 ###############################################################
@@ -193,11 +196,14 @@ $(PLANS_STATIC_100): $(PLANS_MEN)  $(PLANS_WOMEN) $(PLANS_COMMUTERS)
 	$(sc) prepare lookup-jis-code --input $@ --output $@ --shp $(gunma)/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp
 
 # 6) Downsample (e.g. to 25% or 1%)
-PLANS_STATIC = $(p)/e05_plans_static-$Spct.xml.gz
+# downsample-population keeps the filename. So the second step changes filename of e06 to remain consistent
+PLANS_STATIC = $(p)/e06_plans_static-$Spct.xml.gz
 $(PLANS_STATIC): $(PLANS_STATIC_100)
 	$(sc) prepare downsample-population $< \
 		--sample-size 1.0 \
 		--samples $X
+
+	mv $(subst e06,e05,$(PLANS_STATIC)) $(PLANS_STATIC)
 
 
 
@@ -286,7 +292,7 @@ output/eval-$(ERROR_METRIC) : $(p)/gunma-$V-config.xml $(PLANS_SELECTION_XML) $(
 # 14) Prepare Initial plans
 # A) When I created the commuters's daily plans, I didn't add any start_time to work or home, because it depends on how long
 # they have to travel. Now that some iterations have run through, I've added start times based on the trip to that activity.
-# B) Splits activity types into type_DURATION
+# B) Splits activity types into type_DURATION, i've turned off merging overnight activities. TODO: check w/ KN or MK
 $(PLANS_FINAL): output/eval-$(ERROR_METRIC)
 	$(sc) prepare amend-start-time-commuters \
 	--input $</routeChoice.output_selected_plans.xml.gz --output $@
@@ -295,7 +301,7 @@ $(PLANS_FINAL): output/eval-$(ERROR_METRIC)
 	 --input $@ --output $@
 
 ###############################################################
-### D-part2) FACILITIES
+### F) FACILITIES - FILTERING
 ###############################################################
 
 $(FACILITIES_FINAL): $(FACILITIES_FULL) $(PLANS_FINAL)
@@ -303,6 +309,22 @@ $(FACILITIES_FINAL): $(FACILITIES_FULL) $(PLANS_FINAL)
 	 --plans $(word 2,$^) \
 	 --output $@
 
+
+###############################################################
+### G) CALIBRATION
+###############################################################
+# Upload to folder in cluster
+# - input/$V
+# - JAR
+# - calibrate.py
+
+# Copy following from other calibration run (e.g. Berlin v7.0-1pct)
+# - env
+# - run
+
+# Calibration script runs RunOpenGunmaScenario! (Not RunOpenGunmaCalibration 😵‍💫)
+# So make sure you make all neccessary changes there. e.g turn SimWrapper off and
+# increase iterations to 500.
 
 #### DASHBOARD
 output/dashboard-1.yaml:

@@ -42,27 +42,17 @@ public class AmendStartTimeCommuters implements MATSimAppCommand{
 		for (Person person : scenario.getPopulation().getPersons().values()) {
 			if (person.getId().toString().startsWith("commuter_")) {
 
-				// skip first activity, since we don't need starting time here...
-
-//				Plan plan = person.getSelectedPlan();
-//				for (Activity activity : TripStructureUtils.getActivities(plan, TripStructureUtils.StageActivityHandling.ExcludeStageActivities)) {
-//					if (activity.getStartTime().isUndefined()) {
-//						TripStructureUtils.Trip prevTrip = TripStructureUtils.findTripEndingAtActivity(activity, plan).get;
-//					}
-//				}
-
 				for (int i = 1; i < person.getSelectedPlan().getPlanElements().size(); i++) {
 					PlanElement planElement = person.getSelectedPlan().getPlanElements().get(i);
 
 
-					if (planElement instanceof Activity) {
-
-						Activity activity = (Activity) planElement;
+					if (planElement instanceof Activity activity) {
 
 						if (!TripStructureUtils.isStageActivityType(activity.getType()) && activity.getStartTime().isUndefined()) {
 							Leg prevLeg = (Leg) person.getSelectedPlan().getPlanElements().get(i - 1);
-							double startTime = prevLeg.getDepartureTime().seconds() + prevLeg.getTravelTime().seconds();
-							((Activity) planElement).setStartTime(startTime);
+								double travTime = prevLeg.getTravelTime().isDefined() ? prevLeg.getTravelTime().seconds() : 0.0;
+								double startTime = prevLeg.getDepartureTime().seconds() + travTime;
+								activity.setStartTime(startTime);
 						}
 					}
 				}
