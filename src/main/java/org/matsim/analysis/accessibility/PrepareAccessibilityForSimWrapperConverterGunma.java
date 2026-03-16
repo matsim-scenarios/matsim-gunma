@@ -1,5 +1,7 @@
 package org.matsim.analysis.accessibility;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.matsim.api.core.v01.Scenario;
@@ -48,6 +50,7 @@ import static org.matsim.contrib.accessibility.AccessibilityModule.CONFIG_FILENA
 
 public class PrepareAccessibilityForSimWrapperConverterGunma implements MATSimAppCommand {
 
+	private static final Logger log = LogManager.getLogger(PrepareAccessibilityForSimWrapperConverterGunma.class);
 
 
 	// MATSim output directory; this should already contain the "analysis/accessibility/" subdirectories, as the Accessibility Post-Processing should have already occurred
@@ -80,7 +83,8 @@ public class PrepareAccessibilityForSimWrapperConverterGunma implements MATSimAp
 				.map(Path::toString).
 				collect(Collectors.toSet());
 		} catch (IOException e) {
-			e.printStackTrace();
+
+			log.error(e.getMessage());
 		}
 
 		// for each opportunity type, we copy the accessibilities.csv file and simply rename two columns (x,y)
@@ -90,7 +94,7 @@ public class PrepareAccessibilityForSimWrapperConverterGunma implements MATSimAp
 			File folder = new File(folderNameForActivityOption);
 			List<File> files = Arrays.stream(Objects.requireNonNull(folder.listFiles((dir, name) -> name.endsWith("accessibilities.csv")))).toList();
 
-			for(File file : files) {
+			for (File file : files) {
 
 				String filePath = file.getAbsolutePath();
 
@@ -100,20 +104,20 @@ public class PrepareAccessibilityForSimWrapperConverterGunma implements MATSimAp
 					Path path = Path.of(outputPath);
 					if (Files.exists(path)) {
 						Files.delete(path);
-						System.out.println("File deleted: " + outputPath);
+						log.info("File deleted: " + outputPath);
 					} else {
-						System.out.println("File does not exist: " + outputPath);
+						log.warn("File does not exist: " + outputPath);
 					}
 				} catch (IOException e) {
-					System.err.println("Failed to delete file: " + e.getMessage());
+					log.error("Failed to delete file: " + e.getMessage());
 				}
 
-				try {
+//				try {
 					// Use CsvReadOptions to configure the CSV reading options
 					CsvReadOptions options = CsvReadOptions.builder(filePath)
-						.separator(',')        // Specify the separator if it's not a comma
-						.header(true)          // Set to false if the file does not have a header
-						.missingValueIndicator("") // Define how missing values are represented
+						.separator(',')
+						.header(true)
+						.missingValueIndicator("")
 						.build();
 
 					// Read the CSV file into a Table object
@@ -125,22 +129,23 @@ public class PrepareAccessibilityForSimWrapperConverterGunma implements MATSimAp
 					xCol.setName("x");
 					yCol.setName("y");
 
-					if(countPopulation) {
+					if (countPopulation) {
 						popAgeAnalysis(table, activityOption, xCol, yCol);
 					}
 
 
 					// Write the modified table to a new CSV file
 					CsvWriteOptions writeOptions = CsvWriteOptions.builder(outputPath)
-						.separator(',') // Specify the separator if it's not a comma
-						.header(true)   // Write the header to the output file
+						.separator(',')
+						.header(true)
 						.build();
 
 					table.write().csv(writeOptions);
 
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
+//				} catch (Exception e) {
+//					log.error(e.getMessage());
+//				}
+
 			}
 
 		}
@@ -207,12 +212,13 @@ public class PrepareAccessibilityForSimWrapperConverterGunma implements MATSimAp
 			Double homeX = (Double) person.getAttributes().getAttribute("home_x");
 			Double homeY = (Double) person.getAttributes().getAttribute("home_y");
 
+			// Skip this person if home coordinates are not available
 			if (homeX == null || homeY == null) {
-				continue; // Skip this person if home coordinates are not available
+				continue;
 			}
 
 
-			if(homeX > boundingBoxRight || homeX < boundingBoxLeft || homeY > boundingBoxTop || homeY < boundingBoxBottom) {
+			if (homeX > boundingBoxRight || homeX < boundingBoxLeft || homeY > boundingBoxTop || homeY < boundingBoxBottom) {
 				continue;
 			}
 
@@ -232,7 +238,7 @@ public class PrepareAccessibilityForSimWrapperConverterGunma implements MATSimAp
 				}
 			}
 
-			if(closestRow == -1) {
+			if (closestRow == -1) {
 				throw new RuntimeException("closest row be different than initialized value");
 			}
 

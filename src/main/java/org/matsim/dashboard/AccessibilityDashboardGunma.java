@@ -28,9 +28,7 @@ public class AccessibilityDashboardGunma implements Dashboard {
 
 
 	/**
-	 * Best provide the crs from {@link org.matsim.core.config.groups.GlobalConfigGroup}
-	 *
-	 * @param coordinateSystem
+	 * Best provide the crs from {@link org.matsim.core.config.groups.GlobalConfigGroup}.
 	 */
 	public AccessibilityDashboardGunma(String coordinateSystem, List<String> pois, List<Modes4Accessibility> modes) {
 
@@ -51,7 +49,7 @@ public class AccessibilityDashboardGunma implements Dashboard {
 		for (String poi : pois) {
 
 
-			for (Iterator<Modes4Accessibility> iterator = modes.iterator(); iterator.hasNext(); ) {
+			for (Iterator<Modes4Accessibility> iterator = modes.iterator(); iterator.hasNext();) {
 				Modes4Accessibility modeLeft = iterator.next();
 				layout.row(modeLeft.name() + "-" + poi)
 					.el(GridMap.class, (viz, data) -> {
@@ -97,6 +95,6 @@ public class AccessibilityDashboardGunma implements Dashboard {
 		poiBackgroundLayer.setBorderWidth(3);
 		poiBackgroundLayer.setBorderColor("red");
 
-		viz.addBackgroundLayer("poi",poiBackgroundLayer);
+		viz.addBackgroundLayer("poi", poiBackgroundLayer);
 	}
 }
