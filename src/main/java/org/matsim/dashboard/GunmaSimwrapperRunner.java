@@ -8,7 +8,6 @@ import org.matsim.application.MATSimAppCommand;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.run.OpenGunmaScenario;
-import org.matsim.simwrapper.Dashboard;
 import org.matsim.simwrapper.SimWrapper;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.dashboard.*;
@@ -126,7 +125,7 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 
 			// Traffic Counts (based on counts from MLIT)
 			TrafficCountsDashboard trafficCountsDashboard = new TrafficCountsDashboard();
-			trafficCountsDashboard.withCountsPath("input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-counts-mlit.xml.gz");
+			trafficCountsDashboard.withCountsPath("input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-counts-jartic.xml.gz");
 			trafficCountsDashboard.withModes(TransportMode.car, Set.of(TransportMode.car));
 
 			OverviewDashboard overview = new OverviewDashboard();

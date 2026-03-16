@@ -26,12 +26,13 @@ from matsim.calibration import create_calibration, ASCCalibrator, utils, analysi
 
 # modes = ["walk", "car", "ride", "pt", "bike"]
 # INITIAL ASCs
-modes = ["walk", "car", "ride", "bike"]
+# modes = ["walk", "car", "ride", "bike"]
+modes = ["walk", "car", "bike"]
 fixed_mode = "walk"
 initial = {
-    "bike": -1.264026088416823,
-    "car": -1.0023286735499686,
-    "ride": -0.6512361412363425,
+    "bike": -1.2,
+    "car": -0.5,
+    "ride": -1.3,
 }
 
 # Target (Trip-Based?) Mode Share
@@ -60,7 +61,7 @@ study, obj = create_calibration(
     "calib",
     ASCCalibrator(modes, initial, target, lr=utils.linear_scheduler(start=0.3, interval=15)),
     "matsim-gunma-1.x-SNAPSHOT.jar",
-    "input/v1.5/gunma-v1.5-config.xml",
+    "input/v1.6/gunma-v1.6-config.xml",
     args="--1pct",
     jvm_args="-Xmx55G -Xms55G -XX:+AlwaysPreTouch -XX:+UseParallelGC",
     transform_persons=filter_persons,

@@ -1,5 +1,5 @@
 JAR := matsim-gunma-*.jar
-V := v1.5
+V := v1.6
 
 p := input/$V
 gunma := ../shared-svn/projects/matsim-gunma/data
@@ -33,8 +33,8 @@ VEHICLES_FINAL := $(p)/gunma-$V-vehicleTypes.xml
 
 network: $(NETWORK_FINAL)
 vehicles : $(VEHICLES_FINAL)
-facilities: $(FACILITIES_FINAL)
 plans: $(PLANS_FINAL)
+facilities: $(FACILITIES_FINAL)
 
 
 ###############################################################
@@ -44,6 +44,8 @@ plans: $(PLANS_FINAL)
 # 1) Change VERSION in OpenGunmaScenario
 # 2) make empty directory in input matching VERSION
 # 3) Run PrepareConfig
+# 4) Change Version at top of this file
+# 5) Change version in calibrate.py
 
 #$(p)/gunma-$V-config.xml: $(gunma)/raw/matsim_inputs_lichen_luo/config_simulation.xml
 #	$(sc) prepare prepare-config\
@@ -110,6 +112,7 @@ $(NETWORK_SUMO): $(NETWORK_OSM)
 
 
 ### B3) Create MATSim Network
+# todo: include freespeed factor? capacity reductions?
 $(NETWORK_FINAL): $(NETWORK_SUMO)
 	$(sc) prepare network-from-sumo $< --target-crs EPSG:2450 --lane-restrictions REDUCE_CAR_LANES --output $@
 
@@ -206,6 +209,13 @@ $(PLANS_STATIC): $(PLANS_STATIC_100)
 	mv $(subst e06,e05,$(PLANS_STATIC)) $(PLANS_STATIC)
 
 
+# 7a) Create person_attributes.csv and activities.csv using R Script: process_travel_survey2.Rmd.
+# This is where all the travel survey processing occurs.
+# We assume a person has car availability (carAvail) if they have a license and they have a car available to the HH.
+# we recode activities to home, work, education, and other. We recode the modes to car, ride, walk, pt, bike. We throw out
+# travel survey respondents with other modes. We keep PT for now, but these agents will be removed in later step (status quo,
+# maybe PT network will be added in the future).
+
 
 # 7) Assign daily plan to each MATSim Agent
 # Here we match MATSim agents with travel survey respondents, based on their age and gender. The daily plan
@@ -238,6 +248,8 @@ $(PLANS_LOCS): $(PLANS_ACTS) $(FACILITIES_FULL) $(p)/gunma-$V-network.xml.gz $(g
 
 # 9) Eval Run (O iterations) because we need experienced plans for the next step.
 # Note: I am not actually using the inputs because the path needs to be slightly different :/
+
+
 PLANS_EXP := $(p)/e09_plans_experienced-$Spct.xml.gz
 $(PLANS_EXP): $(p)/gunma-$V-config.xml $(PLANS_LOCS) $(FACILITIES_FULL) $(VEHICLES_FINAL)
 	$(sc) run \
@@ -249,8 +261,15 @@ $(PLANS_EXP): $(p)/gunma-$V-config.xml $(PLANS_LOCS) $(FACILITIES_FULL) $(VEHICL
 
 	cp output/eval.output_experienced_plans.xml.gz $@
 
+
 # 10) Create the counts file required for location choice
+
+ROAD_COUNTS := $(p)/gunma-$V-counts-jartic.xml.gz
+xxx: $(ROAD_COUNTS)
 $(p)/gunma-$V-counts-mlit.xml.gz: $(gunma)/processed/roadcounts/matsim_linkId_to_roadcounts.csv
+	$(sc) prepare counts-from-mlit --input $< --output $@
+
+$(ROAD_COUNTS): $(gunma)/processed/roadcounts/matsim_linkId_to_roadcounts_jartic.csv
 	$(sc) prepare counts-from-mlit --input $< --output $@
 
 
@@ -258,7 +277,7 @@ $(p)/gunma-$V-counts-mlit.xml.gz: $(gunma)/processed/roadcounts/matsim_linkId_to
 
 ERROR_METRIC ?= log_error
 PLANS_SELECTION_CSV := $(p)/e11_plans_selection_$(ERROR_METRIC)-$Spct.csv
-$(PLANS_SELECTION_CSV): $(PLANS_EXP) $(p)/gunma-$V-network.xml.gz $(p)/gunma-$V-counts-mlit.xml.gz
+$(PLANS_SELECTION_CSV): $(PLANS_EXP) $(NETWORK_FINAL) $(ROAD_COUNTS)
 	$(sc) prepare run-count-opt\
 	 --input $<\
 	 --network $(word 2,$^)\
@@ -293,12 +312,18 @@ output/eval-$(ERROR_METRIC) : $(p)/gunma-$V-config.xml $(PLANS_SELECTION_XML) $(
 # A) When I created the commuters's daily plans, I didn't add any start_time to work or home, because it depends on how long
 # they have to travel. Now that some iterations have run through, I've added start times based on the trip to that activity.
 # B) Splits activity types into type_DURATION, i've turned off merging overnight activities. TODO: check w/ KN or MK
+# MOVED from output_selected_plans.xml.gz -> output_experienced_plans.xml.gz, so that activity start and end times would be defined.
+# Otherwise, split-activity-types-duration fails because it assumes that activity durations are way too long
 $(PLANS_FINAL): output/eval-$(ERROR_METRIC)
 	$(sc) prepare amend-start-time-commuters \
-	--input $</routeChoice.output_selected_plans.xml.gz --output $@
+		--input $</routeChoice.output_experienced_plans.xml.gz --output $@
 
 	$(sc) prepare split-activity-types-duration \
-	 --input $@ --output $@
+		--input $@ --output $@
+
+	 $(sc) prepare split-morning-evening-acts \
+    	--input $@ --output $@
+
 
 ###############################################################
 ### F) FACILITIES - FILTERING

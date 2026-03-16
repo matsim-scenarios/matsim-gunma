@@ -7,6 +7,7 @@ import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.config.groups.*;
 import org.matsim.run.OpenGunmaScenario;
 
+import java.util.List;
 import java.util.Map;
 
 
@@ -27,6 +28,7 @@ public final class PrepareConfig {
 		// global
 		config.global().setCoordinateSystem(OpenGunmaScenario.CRS);
 		config.global().setInsistingOnDeprecatedConfigVersion(false);
+		config.global().setNumberOfThreads(16);
 
 		// ############
 		// transit
@@ -54,7 +56,7 @@ public final class PrepareConfig {
 
 
 		// ############
-		// vehicle types
+		// vehicle type
 		config.qsim().setVehiclesSource(QSimConfigGroup.VehiclesSource.modeVehicleTypesFromVehiclesData);
 		config.vehicles().setVehiclesFile("gunma-v" + OpenGunmaScenario.VERSION + "-vehicleTypes.xml");
 
@@ -67,14 +69,33 @@ public final class PrepareConfig {
 		// ############
 		// replanning
 		config.replanning().setFractionOfIterationsToDisableInnovation(0.8);
+
+		// ############
+		// time mutation
 		config.timeAllocationMutator().setAffectingDuration(false);
+		config.timeAllocationMutator().setMutateAroundInitialEndTimeOnly(false);
+		//  kn: "irgendetwas großes.  Mindestens qsim.endTime" --> 3 days
+		config.timeAllocationMutator().setLatestActivityEndTime(3 * 24 * 60 * 60.);
+
+
+
+		// ############
+		// replanning
+		config.subtourModeChoice().setModes(List.of(TransportMode.car, TransportMode.walk, TransportMode.bike, TransportMode.ride).toArray(new String[0]));
+		config.subtourModeChoice().setConsiderCarAvailability(true);
+		config.changeMode().setModes(List.of(TransportMode.car).toArray(new String[0]));
+
 
 		// ############
 		// routing
 		config.routing().setAccessEgressType(RoutingConfigGroup.AccessEgressType.accessEgressModeToLink);
+		config.routing().removeTeleportedModeParams(TransportMode.pt);
 
 		// ############
 		// scoring
+
+		config.scoring().removeParameterSet(config.scoring().getActivityParams("pt interaction"));
+
 
 		// 0.8 recommended by VSP consistency checker
 		config.scoring().setFractionOfIterationsToStartScoreMSA(0.8);
@@ -93,7 +114,6 @@ public final class PrepareConfig {
 		for (ScoringConfigGroup.ModeParams modeParams : modes.values()) {
 			config.scoring().getScoringParameters(null).removeParameterSet(modeParams);
 		}
-
 
 		// Mode Params from Luo et al. (added 0.174 to all ASCs so that walk's ASC is brought to zero)
 
@@ -125,11 +145,7 @@ public final class PrepareConfig {
 		config.scoring().addModeParams(walkParams);
 
 		// ride
-
 		RideScoringParamsFromCarParams.setRideScoringParamsBasedOnCarParams(config.scoring(), 1.0);
-
-
-
 
 		// write config
 		ConfigUtils.writeConfig(config, "input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-config.xml");

@@ -4,4 +4,5 @@ v1.2: adds census data regarding commuter flow
 v1.3: adds new network, adds counts
 v1.4: adds commuters into Gunma
 v1.5: cleaned up makefile pipeline. ready for calibration
+v1.6: added carAvail into mix & fixed activity types (to be split by duration, and add morning/evening activities (see Kai/Moritz email)).
 

@@ -11,9 +11,10 @@ import org.matsim.core.config.groups.FacilitiesConfigGroup;
 import org.matsim.core.controler.OutputDirectoryHierarchy;
 import org.matsim.core.scenario.MutableScenario;
 import org.matsim.core.scenario.ScenarioUtils;
+import org.matsim.dashboard.AccessibilityDashboardGunma;
+import org.matsim.run.OpenGunmaScenario;
 import org.matsim.simwrapper.SimWrapper;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
-import org.matsim.simwrapper.dashboard.AccessibilityDashboard;
 
 import java.io.File;
 import java.io.IOException;
@@ -26,9 +27,9 @@ import java.util.List;
 public final class RunGunmaAccessibility {
 
 	static final String coordinateSystem = "EPSG:2450";
-	static final String dirToCopy = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/output/0000_base";
+	static final String dirToCopy = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.4/2026-03-06/calib-acc";
 
-	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/output/2026-01-07/3/";
+	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.4/2026-03-06/calib-acc-b";
 	static final List<String> relevantPois = List.of("supermarket", "public_bath", "hospital", "shinkansen", "middle");
 
 
@@ -37,7 +38,7 @@ public final class RunGunmaAccessibility {
 	}
 
 
-	public static void main(String[] args) throws IOException {
+	static void main(String[] args) throws IOException {
 
 		FileUtils.copyDirectory(new File(dirToCopy), new File(outputDir));
 
@@ -47,7 +48,7 @@ public final class RunGunmaAccessibility {
 
 
 		// CREATE DASHBOARD
-//		createDashboard(mapCenterString);
+		createDashboard(mapCenterString);
 	}
 
 	private static void calculateAccessibility() {
@@ -55,7 +56,7 @@ public final class RunGunmaAccessibility {
 		accConfig.setTileSize_m(500);
 
 		accConfig.setAreaOfAccessibilityComputation(AccessibilityConfigGroup.AreaOfAccesssibilityComputation.fromShapeFile);
-		accConfig.setShapeFileCellBasedAccessibility("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/shp/gunma_2450/gunma_2450.shp");
+		accConfig.setShapeFileCellBasedAccessibility("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp");
 
 		// extents of gunma from qgis -- this really shouldn't be neccessary if we use shp file...
 		accConfig.setBoundingBoxLeft(-8874.3893231801757793);
@@ -74,9 +75,9 @@ public final class RunGunmaAccessibility {
 		// Accessibility Calculation
 		String eventsFile = ApplicationUtils.matchInput("output_events.xml.gz", Path.of(outputDir)).toString();
 
-		String networkFile = "../_playground/gunma/data/matsim_inputs/NetworkRed191211fromJOSM_noHighway_cle_speed0.66Adjusted.xml";
+		String networkFile = "input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-network.xml.gz";
 
-		String poisFile = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/osm_buffer5km/pois.xml";
+		String poisFile = "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/pois	.xml";
 		final Config config = ConfigUtils.createConfig();
 		config.controller().setLastIteration(0);
 		config.controller().setOutputDirectory(outputDir);
@@ -124,9 +125,9 @@ public final class RunGunmaAccessibility {
 
 
 		SimWrapper sw = SimWrapper.create(config)
-			.addDashboard(new AccessibilityDashboard(coordinateSystem, relevantPois, List.of(Modes4Accessibility.car)));
+			.addDashboard(new AccessibilityDashboardGunma(coordinateSystem, relevantPois, List.of(Modes4Accessibility.car)));
 
-		boolean append = false;
+		boolean append = true;
 		try {
 			sw.generate(Path.of(outputDir), append);
 		} catch (IOException e) {

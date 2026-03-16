@@ -21,6 +21,7 @@ import org.matsim.application.prepare.pt.CreateTransitScheduleFromGtfs;
 import org.matsim.contrib.cadyts.car.CadytsCarModule;
 import org.matsim.contrib.cadyts.car.CadytsContext;
 import org.matsim.contrib.cadyts.general.CadytsScoring;
+import org.matsim.contrib.vsp.scenario.SnzActivities;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.config.groups.ReplanningConfigGroup;
@@ -44,6 +45,7 @@ import org.matsim.core.scoring.SumScoringFunction;
 import org.matsim.core.scoring.functions.ScoringParametersForPerson;
 import org.matsim.core.utils.geometry.CoordUtils;
 import org.matsim.dashboard.GunmaSimwrapperRunner;
+import org.matsim.prepare.counts.CreateCountsFromJarticData;
 import org.matsim.prepare.counts.CreateCountsFromMlitData;
 import org.matsim.prepare.facilities.CreateMATSimFacilitiesGunma;
 import org.matsim.prepare.facilities.FacilitiesFilter;
@@ -76,8 +78,8 @@ import static org.matsim.run.OpenGunmaScenario.*;
 	DownSamplePopulation.class,
 	CreateNetworkFromSumo.class, CreateTransitScheduleFromGtfs.class,
 	CleanNetwork.class, RunActivitySampling.class, InitLocationChoice.class,
-	CreateMATSimFacilitiesGunma.class, FacilitiesFilter.class, LookupJisZone.class, CreateCountsFromMlitData.class,
-	RunCountOptimization.class, SelectPlansFromIndex.class, SplitActivityTypesDuration.class, AmendStartTimeCommuters.class, PrepareVehicleTypes.class})
+	CreateMATSimFacilitiesGunma.class, FacilitiesFilter.class, LookupJisZone.class, CreateCountsFromMlitData.class, CreateCountsFromJarticData.class,
+	RunCountOptimization.class, SelectPlansFromIndex.class, SplitActivityTypesDuration.class, AmendStartTimeCommuters.class, PrepareVehicleTypes.class, SplitMorningEveningActivities.class})
 
 
 
@@ -177,12 +179,17 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 
 
 		// remove PT from config
-		if (removePt) {
-			removePtFromConfig(config);
-		}
+//		if (removePt) {
+//			removePtFromConfig(config);
+//		}
 
 		// Location choice does not work with the split types
 		Activities.addScoringParams(config, true);
+
+
+		// morning evening activities:
+		SnzActivities.addMorningEveningScoringParams(config);
+
 
 		SimWrapperConfigGroup sw = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
 		sw.setDefaultDashboards(SimWrapperConfigGroup.DefaultDashboardsMode.disabled);
@@ -316,6 +323,9 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 		if (removePt) {
 			removePtFromScenario(scenario);
 		}
+
+		// kai settings
+//		org.matsim.contrib.vsp.scenario.Activities.changeWrapAroundActsIntoMorningAndEveningActs( scenario );
 
 
 		if (mode == CalibrationMode.cadyts)
