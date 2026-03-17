@@ -5,6 +5,7 @@ import org.matsim.prepare.population.GunmaPopulationAttributeAnalysis;
 import org.matsim.simwrapper.Dashboard;
 import org.matsim.simwrapper.Header;
 import org.matsim.simwrapper.Layout;
+import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.viz.PieChart;
 import org.matsim.simwrapper.viz.Plotly;
 import org.matsim.simwrapper.viz.Tile;
@@ -34,7 +35,7 @@ public class GunmaPopulationAttributeDashboard implements Dashboard {
 		this.ageWomenRef = ageWomenRef;
 	}
 	@Override
-	public void configure(Header header, Layout layout) {
+	public void configure(Header header, Layout layout, SimWrapperConfigGroup configGroup) {
 
 		header.title = "Population";
 		header.description = "Analyze the sociodemographic characteristics of the population";

@@ -10,6 +10,7 @@ import org.matsim.core.utils.io.IOUtils;
 import org.matsim.simwrapper.Dashboard;
 import org.matsim.simwrapper.Header;
 import org.matsim.simwrapper.Layout;
+import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.viz.*;
 import tech.tablesaw.plotly.components.Axis;
 import tech.tablesaw.plotly.components.Line;
@@ -134,7 +135,7 @@ public class GunmaTripDashboard implements Dashboard {
 	}
 
 	@Override
-	public void configure(Header header, Layout layout) {
+	public void configure(Header header, Layout layout, SimWrapperConfigGroup configGroup) {
 
 		header.title = "Trips";
 		header.description = "General information about modal share and trip distributions.";

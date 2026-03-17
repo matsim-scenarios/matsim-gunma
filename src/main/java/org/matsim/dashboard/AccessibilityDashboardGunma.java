@@ -3,10 +3,7 @@ package org.matsim.dashboard;
 import org.matsim.analysis.accessibility.PrepareAccessibilityForSimWrapperConverterGunma;
 import org.matsim.application.analysis.accessibility.PreparePoisForSimWrapper;
 import org.matsim.contrib.accessibility.Modes4Accessibility;
-import org.matsim.simwrapper.Dashboard;
-import org.matsim.simwrapper.Data;
-import org.matsim.simwrapper.Header;
-import org.matsim.simwrapper.Layout;
+import org.matsim.simwrapper.*;
 import org.matsim.simwrapper.viz.BackgroundLayer;
 import org.matsim.simwrapper.viz.ColorScheme;
 import org.matsim.simwrapper.viz.GridMap;
@@ -39,7 +36,7 @@ public class AccessibilityDashboardGunma implements Dashboard {
 	}
 
 	@Override
-	public void configure(Header header, Layout layout) {
+	public void configure(Header header, Layout layout, SimWrapperConfigGroup configGroup) {
 
 
 		header.title = "Accessibility";

@@ -5,10 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NonNull;
 import org.matsim.analysis.activity.ActivityCountAnalysisFrontsheet;
 import org.matsim.application.analysis.activity.ActivityCountAnalysis;
-import org.matsim.simwrapper.Dashboard;
-import org.matsim.simwrapper.Data;
-import org.matsim.simwrapper.Header;
-import org.matsim.simwrapper.Layout;
+import org.matsim.simwrapper.*;
 import org.matsim.simwrapper.viz.*;
 
 import java.util.*;
@@ -88,7 +85,7 @@ public class GunmaActivityDashboard implements Dashboard {
 	}
 
 	@Override
-	public void configure(Header header, Layout layout) {
+	public void configure(Header header, Layout layout, SimWrapperConfigGroup configGroup) {
 
 		header.title = "Activities";
 		header.description = "Displays the activities by type and location.";

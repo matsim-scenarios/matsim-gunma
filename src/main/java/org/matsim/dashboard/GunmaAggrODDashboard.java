@@ -3,6 +3,7 @@ package org.matsim.dashboard;
 import org.matsim.simwrapper.Dashboard;
 import org.matsim.simwrapper.Header;
 import org.matsim.simwrapper.Layout;
+import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.viz.AggregateOD;
 
 import java.util.ArrayList;
@@ -38,7 +39,7 @@ public class GunmaAggrODDashboard implements Dashboard {
 	}
 
 	@Override
-	public void configure(Header header, Layout layout) {
+	public void configure(Header header, Layout layout, SimWrapperConfigGroup configGroup) {
 
 		header.title = "OD Flows for Work Trips";
 		header.tab = "OD Work";

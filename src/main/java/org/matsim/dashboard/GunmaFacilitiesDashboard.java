@@ -4,6 +4,7 @@ import org.matsim.facilities.FacilityAnalysis;
 import org.matsim.simwrapper.Dashboard;
 import org.matsim.simwrapper.Header;
 import org.matsim.simwrapper.Layout;
+import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.viz.*;
 
 import java.util.List;
@@ -14,7 +15,7 @@ import java.util.List;
 public class GunmaFacilitiesDashboard implements Dashboard {
 
 	@Override
-	public void configure(Header header, Layout layout) {
+	public void configure(Header header, Layout layout, SimWrapperConfigGroup configGroup) {
 
 		header.title = "Facilities";
 		header.description = "Locations of facilities in the Gunma scenario.";
