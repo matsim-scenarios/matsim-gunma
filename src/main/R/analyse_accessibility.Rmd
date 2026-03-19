@@ -1,0 +1,118 @@
+---
+title: "analyse_accessibility"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(lubridate)
+```
+
+
+```{r}
+# input directory
+base_dir <- "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.4/2026-03-06/calib-acc-b/"
+
+acc_dir <- paste0(base_dir,"analysis/accessibility/")
+figure_dir <-  paste0(base_dir, "figures-R/")
+dir.create(figure_dir)
+```
+
+
+```{r}
+main_time <- "8:00"
+
+accessibility_full <- data.frame()
+poi_full <- data.frame()
+pois <- c("hospital", "middle", "public_bath", "shinkansen","supermarket")
+
+for(poi in pois){
+  
+  accessibility_full <- rbind(accessibility_full, read_csv(paste0(acc_dir, poi, "/accessibilities_simwrapper.csv")) %>% mutate (poi = poi))
+  poi_full  <- rbind(poi_full,st_read(paste0(acc_dir,poi,"/pois.shp")))
+  
+}
+
+
+accessibility_full <-  accessibility_full %>% 
+  st_as_sf(coords = c("x","y"), crs = "EPSG:25832") %>% 
+  mutate(time = hms(time))
+  
+# bbox = bb(accessibility_full, ext = 1.05)
+```
+
+Assumption: No one above 75 can drive
+```{r}
+
+accessibility_full %>%
+  filter(poi == "hospital") %>% 
+  st_drop_geometry() %>% 
+  filter(population > 0) %>% mutate(population0to74 = population - `population75+`) %>% 
+  select(population0to74,`population75+`,car_accessibility,teleportedWalk_accessibility) %>% 
+  mutate(
+    adult = pmax(teleportedWalk_accessibility,car_accessibility),
+    elderly = teleportedWalk_accessibility
+    ) %>%  
+  pivot_longer(cols = c(adult, elderly), names_to = "group", values_to = "maxAccessibility") %>%
+  mutate(population = case_when(group == "adult" ~ population0to74, .default = `population75+`)) %>% 
+  select(group, population, maxAccessibility) %>% view()
+  group_by(group) %>% 
+  summarise(maxAccessibility = sum(maxAccessibility*population)/sum(population))
+
+
+
+
+
+```
+
+
+# Person-Based
+
+```{r}
+
+# middle
+# accessibility <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-17-base-accessibility/analysis/accessibility/middle/accessibilities.csv")
+
+pois <- st_read("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/poi_2450.shp")
+
+accessibility <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-17b-base-accessibility-supermarket/analysis/accessibility/supermarket/accessibilities.csv")
+
+
+persons <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-17-base-accessibility/gunma.output_persons.csv.gz")
+
+tmap_mode("view")
+
+persons_processed <- persons %>%
+  filter(!str_starts(person,"commuter")) %>% 
+  full_join(accessibility,by = c("person" = "id")) %>% st_as_sf(coords = c("home_x","home_y"),crs=2450) %>% 
+  mutate(age_round = floor(age/10)*10) %>% 
+  mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+"))) %>% 
+  mutate(base_max_accessibility = case_when(
+    carAvail == "never" ~ teleportedWalk_accessibility, 
+    .default = pmax(teleportedWalk_accessibility,car_accessibility))) %>% 
+  mutate(policy_max_accessibility = case_when(
+    carAvail == "never" | age >=75 ~ teleportedWalk_accessibility, 
+    .default = pmax(teleportedWalk_accessibility,car_accessibility))) %>% 
+    select(person,age_factor, sex, carAvail, executed_score,carAvail, ends_with("accessibility"))
+
+
+
+persons_processed_summarised <- persons_processed %>% 
+  st_drop_geometry() %>%
+  group_by(age_factor,sex) %>% 
+  summarise(base_max_accessibility = mean(base_max_accessibility), policy_max_accessibility = mean(policy_max_accessibility)) %>% 
+  mutate(diff_max_accessibility = policy_max_accessibility - base_max_accessibility)
+
+ggplot(persons_processed_summarised) + geom_col(aes(age_factor,base_max_accessibility, fill = sex), position = "dodge")
+ggplot(persons_processed_summarised) + geom_col(aes(age_factor,policy_max_accessibility, fill = sex), position = "dodge")
+ggplot(persons_processed_summarised) + geom_col(aes(age_factor,diff_max_accessibility, fill = sex), position = "dodge")
+
+tm_shape(persons_processed) + tm_dots(fill = "base_max_accessibility", fill.scale = tm_scale_continuous(values = "viridis")) +
+  tm_shape(pois %>% filter(type == "supermarket")) + tm_dots(fill = "black")
+
+
+```
+

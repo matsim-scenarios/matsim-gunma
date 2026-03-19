@@ -1,0 +1,127 @@
+---
+title: "analyse_base_case"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(tmaptools)
+```
+
+
+
+```{r}
+# persons_raw <- read_delim("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.4/2026-03-10/002/002.output_persons.csv.gz")
+ persons_raw <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-13-base/gunma.output_persons.csv.gz")
+
+persons <- persons_raw %>%
+  filter(!str_starts(person,"commuter")) %>%
+  mutate(age_round = floor(age/10)*10) %>% 
+  mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+")))
+
+# trips_raw <- read_delim("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.4/2026-03-10/002/002.output_trips.csv.gz")
+
+ trips_raw <-  read_delim("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-13-base/gunma.output_trips.csv.gz")
+
+trips <- trips_raw %>% 
+  filter(!str_starts(person,"commuter")) 
+```
+
+
+Score Distribution by age group
+```{r}
+persons %>% 
+  group_by(sex,age_factor) %>% 
+  filter(executed_score > 0) %>%
+  summarise(executed_score = mean(executed_score), n = n()) %>%
+  ggplot(aes(age_factor,executed_score, fill = sex)) +
+  geom_col(position = "dodge") +
+  theme_minimal(base_size = 14)+
+  labs(x = "Age Group", y = "Executed Score (utils)", title = "Score Distribution in Base Case")
+  
+```
+
+
+```{r}
+trips %>% group_by(person) %>% 
+  summarise(num_trips = n()) %>% 
+  right_join(persons %>% select(person,age_factor,sex)) %>% 
+  mutate(num_trips = replace_na(num_trips,0)) %>% 
+  group_by(age_factor,sex) %>% summarise(num_trips = mean(num_trips)) %>% 
+    mutate(sex = factor(sex, levels = c("m","f"),labels = c("Male","Female"))) %>% 
+
+  ggplot(aes(age_factor, num_trips, fill = sex)) + geom_col(position = "dodge") +
+  theme_minimal(base_size = 14)+
+  labs(x = "Age Group", y = "Number of Trips", title = "Trip Distribution by Age and Gender in Base Case")
+
+
+
+trips %>% 
+  left_join(persons, by = "person") %>% 
+  select(main_mode,age_factor,sex) %>% 
+  mutate(car = main_mode == "car", walk = main_mode == "walk", ride = main_mode == "ride", bike = main_mode == "bike") %>%
+  group_by(age_factor,sex) %>%
+  summarise(car = sum(car)/n(), ride = sum(ride)/n(), walk = sum(walk)/n(), bike = sum(bike)/n()) %>% 
+  pivot_longer(cols = -c(age_factor,sex), names_to = "mode", values_to = "share") %>% 
+  mutate(sex = factor(sex, levels = c("m","f"),labels = c("Male","Female"))) %>% 
+  mutate(Mode = factor(mode, levels = c("bike","walk","ride","car"))) %>% 
+  ggplot() + 
+  geom_col(aes(age_factor, share, fill = Mode)) + 
+  facet_grid(~sex) +
+  theme_minimal(base_size = 14)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(x = "Age Group", y = "Modal Split (Trip-Based)")
+
+
+```
+
+
+MAP
+```{r}
+persons_sf <- persons_raw %>% st_as_sf(coords = c("home_x","home_y"), crs = 2450)
+
+gunma_shp <- st_read("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp")
+
+pref_shp <- st_read("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/zzz_deprecated/jp_administrative_boundaries/gadm41_JPN_1.shp")
+
+
+bbox <- st_bbox(c(
+  ymin = -485222,
+  xmin = -827274,
+  ymax = 1048604,
+  xmax = 533396
+), crs = st_crs(2450))
+
+
+tokyo <- st_as_sf(
+  data.frame(name = "Tokyo", x = 114720.9, y = -34663.6),
+  coords = c("x","y"),
+  crs = 2450
+)
+
+japan_map <- tm_basemap("Esri.WorldGrayCanvas") + 
+  tm_shape(bbox %>% st_as_sfc())+
+  tm_shape(pref_shp %>% filter(NAME_1 == "Gunma")) + tm_fill(fill = "blue") +
+  tm_shape(tokyo) +  tm_symbols(shape = 8, size = 0.3) + tm_text("name",xmod = 3, ymod = - 3, size = 0.5)
+
+
+japan_map
+
+fig_map <- tm_basemap("Esri.WorldGrayCanvas") + 
+  tm_shape(gunma_shp) + tm_borders(col = "blue") +
+  tm_shape(persons_sf) + tm_dots(fill_alpha = 0.2, size = 0.1)   +
+  tm_shape(gunma_shp) + tm_borders(col = "blue", lwd = 2) +
+  tm_inset(
+    japan_map,
+    height = 12,
+    width = 12,
+    position = tm_pos_in(0.0,1.0)
+  )
+
+tmap_save(fig_map, filename = "../shared-svn/projects/matsim-gunma/figures/map_gunma_population.png")
+
+
+```
+

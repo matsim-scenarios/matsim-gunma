@@ -1,0 +1,647 @@
+---
+title: "process_commuters"
+output: html_document
+---
+
+# Frontmatter
+Read libraries
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(readxl)
+library(matsim)
+```
+
+inputs and outputs
+```{r}
+in_jis_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/jis_zones/jis_zones.shp"
+in_commuter_census <- "../shared-svn/projects/matsim-gunma/data/raw/2020census/e06_02-01.xlsx"
+```
+
+Function to rescale commuter df, to have a new total number of commuters
+```{r}
+
+scale_counts_exact <- function(df, target, col = "n") {
+  x <- df[[col]]
+  w <- x * target / sum(x)
+
+  base <- floor(w)
+  rem <- target - sum(base)
+
+  idx <- order(w - base, decreasing = TRUE)[seq_len(rem)]
+
+  scaled <- base
+  scaled[idx] <- scaled[idx] + 1
+
+  df[[paste0(col, "_scaled")]] <- scaled
+  df
+}
+```
+
+
+work with shape files 
+```{r}
+
+jis_zones_shp <- st_read(in_jis_shp)
+
+gunma_shp <- jis_zones_shp %>%  filter(str_starts(id, "10")) %>% summarise()
+
+env00 <- gunma_shp %>% st_bbox() %>% st_as_sfc()
+
+env50 <- st_buffer(gunma_shp, dist = 50000)  %>% st_bbox() %>% st_as_sfc()
+
+env75 <- st_buffer(gunma_shp, dist = 75000)  %>% st_bbox() %>% st_as_sfc()
+
+env100 <- st_buffer(gunma_shp, dist = 100000)  %>% st_bbox() %>% st_as_sfc()
+
+jis_100 <- jis_zones_shp %>% st_filter(env100)
+
+tmap_mode("view")
+tm_shape(env50)+ tm_borders() +
+  tm_shape(jis_100)+ tm_borders() +
+  tm_shape(gunma_shp) +
+  tm_polygons(fill = "blue")
+
+
+```
+
+Read Census Data
+```{r}
+commuters <- read_excel(in_commuter_census, skip = 7)
+
+commuters_cleaned <- commuters %>% 
+  rename(from = "...4") %>% 
+  select(!starts_with("...")) %>%
+  slice(-(1:2)) %>% 
+  pivot_longer(cols = -from,names_to = "to",values_to = "n") %>% 
+    separate_wider_delim(from, delim = "_", names = c("from",NA)) %>% 
+    separate_wider_delim(to, delim = "_", names = c("to",NA)) %>% 
+  mutate(n = as.numeric(n)) %>% 
+  drop_na(n)
+```
+
+## Exploratory Analysis
+
+### COMMUTERS TO GUNMA
+93% of work trip ending to Gunma, are from residents living in Gunma. 7% are from outside
+56557 people coming into Gunma for work
+
+Within the 100km envelope, we have 55890 commuters (99%)
+Within the 75km envelope, we have 55365 commuters (98%)
+Within the 50km envelope, we have 54172 commuters (96%)
+```{r}
+commuters_cleaned %>%  
+  filter(from %in% c("00000","10000") & to == "10000") 
+
+
+# prep dataframe
+commuters_to_gunma <- commuters_cleaned %>% 
+  filter(to == "10000") %>% 
+  filter(!str_ends(from, "00")) %>% 
+  filter(!str_starts(from, "10")) %>% 
+  # mutate(id = paste0('"', from, '"')) %>% 
+    mutate(id = from) %>% 
+  right_join(jis_100, by = "id") %>% 
+  st_as_sf() %>% 
+  filter(!str_starts(id, "10")) %>% 
+  replace_na(list(n = 0))
+
+# how many commuters are contained within the 100km envelope (including municipalities that extend past the 100km mark)
+commuters_to_gunma %>%  st_filter(env100,.predicate = sf::st_within) %>% st_drop_geometry() %>%  summarise(n = sum(n))
+# how many commuters are contained within the 75km envelope (including municipalities that extend past the 50km mark)
+commuters_to_gunma %>% st_filter(env75,.predicate = sf::st_within) %>% st_drop_geometry() %>%  summarise(n = sum(n))
+# how many commuters are contained within the 50km envelope (including municipalities that extend past the 50km mark)
+commuters_to_gunma %>% st_filter(env50,.predicate = sf::st_within) %>% st_drop_geometry() %>%  summarise(n = sum(n))
+  
+tmap_mode("plot")
+tm_basemap("Esri.WorldGrayCanvas") + 
+tm_shape(commuters_to_gunma) +
+  tm_polygons(
+    color = NA,
+    fill = "n",
+    breaks = c(0,1,5,10,50,100,500,1000,5000),
+    lwd = 0
+  ) + tm_shape(env75)+ tm_borders(col = "#B32928", lwd = 4) +
+  tm_shape(gunma_shp) +
+  tm_polygons(fill = "#8425F4") +
+  tm_title("Commuters To Gunma Prefecture")
+
+  # select(id,n) %>% view()
+  # write_csv("../shared-svn/projects/matsim-gunma/data/processed/census/commuters_to_gunma_jis.csv")
+
+
+# commuters_cleaned %>% 
+#   filter(str_ends(from, "000") & from != "00000" & from !="10000" & to == "10000") %>% separate_wider_position(from,c(from = 2, 3))  %>%
+#   mutate(from = factor(as.numeric(from),levels = seq(1:47),labels = prefectures_ordered_by_code)) %>%  
+#   arrange(n) %>% 
+# ggplot() + geom_col(aes(from,n)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + labs(title = "Commuters TO Gunma")
+```
+
+
+### COMMUTERS FROM GUNMA
+91% of work trip starting in Gunma, are from residents living in Gunma. 9% go outside
+79371 commuters of which 52246 had known destinations (not code 99998 or 99999)
+within 100km :51223 (98% of known)
+within 75km: 50681 (97% of known)
+within 50km 49528 (95% of known)
+
+
+
+```{r}
+
+commuters_cleaned %>%  
+  filter(to %in% c("00000","10000") & from == "10000") 
+
+
+
+
+commuters_from_gunma <- commuters_cleaned %>% 
+  filter(from == "10000") %>% 
+  filter(!str_ends(to, "00")) %>% 
+  filter(!str_starts(to, "10")) %>% 
+  filter(!str_starts(to,"9999")) %>% 
+  mutate(id = to) %>% 
+  # mutate(id = paste0('"', to, '"')) %>% 
+  right_join(jis_100, by = "id") %>%
+  st_as_sf() %>% 
+  filter(!str_starts(id, "10")) %>% 
+  replace_na(list(n = 0))
+
+
+# how many commuters are contained within the 100km envelope (including municipalities that extend past the 100km mark)
+commuters_from_gunma %>% st_filter(env100,.predicate = sf::st_within)%>% st_drop_geometry() %>%  summarise(n = sum(n))
+# how many commuters are contained within the 75km envelope (including municipalities that extend past the 75km mark)
+commuters_from_gunma %>% st_filter(env75,.predicate = sf::st_within) %>% st_drop_geometry() %>%  summarise(n = sum(n))# how many commuters are contained within the 50km envelope (including municipalities that extend past the 50km mark)
+commuters_from_gunma %>% st_filter(env50,.predicate = sf::st_within) %>% st_drop_geometry() %>%  summarise(n = sum(n))
+  
+
+tmap_mode("plot")
+tm_basemap("Esri.WorldGrayCanvas") + 
+tm_shape(commuters_from_gunma) +
+  tm_polygons(
+    color = NA,
+    fill = "n",
+    breaks = c(0,1,5,10,50,100,500,1000,5000),
+    lwd = 0
+  ) + tm_shape(env75)+ tm_borders(col = "#B32928", lwd = 4) +
+  tm_shape(gunma_shp) +
+  tm_polygons(fill = "#8425F4") +
+  tm_title("Commuters From Gunma Prefecture")
+
+
+```
+
+## Produce output/input for MATSim generation of MATSim Commuter
+
+Reassign commuters with origins/destinations outside of the 75km study area back to municipalities within the zone. 
+```{r}
+
+# Scale commuters to gunma
+commuters_to_gunma_target <- 56557
+commuters_to_gunma_75_prep <- commuters_cleaned %>% 
+  filter(str_starts(to,"10")) %>% 
+  filter(!str_ends(to, "00")) %>% 
+  filter(!str_ends(from, "00")) %>% 
+  filter(!str_starts(from, "10")) %>% 
+  # mutate(id = paste0('"', from, '"')) %>% 
+    mutate(id = from) %>% 
+  right_join(jis_100, by = "id") %>% 
+  st_as_sf() %>% 
+  replace_na(list(n = 0))  %>% 
+  st_filter(env75,.predicate = sf::st_within) %>%   st_drop_geometry()
+
+
+commuters_to_gunma_75_scaled <- scale_counts_exact(commuters_to_gunma_75_prep,commuters_to_gunma_target)
+
+commuters_to_gunma_75_scaled %>% summarise(n = sum(n),n_scaled = sum(n_scaled))
+
+
+# Scale commuters from gunma
+commuters_from_gunma_target <- 52246
+commuters_from_gunma_75_prep <- commuters_cleaned %>% 
+  filter(str_starts(from,"10")) %>% 
+  filter(!str_ends(from, "00")) %>% 
+  filter(!str_ends(to, "00")) %>% 
+  filter(!str_starts(to, "10")) %>% 
+  # mutate(id = paste0('"', from, '"')) %>% 
+    mutate(id = to) %>% 
+  right_join(jis_100, by = "id") %>% 
+  st_as_sf() %>% 
+  replace_na(list(n = 0))  %>% 
+  st_filter(env75,.predicate = sf::st_within) %>%   st_drop_geometry()
+
+commuters_from_gunma_75_scaled <- scale_counts_exact(commuters_from_gunma_75_prep,commuters_from_gunma_target)
+
+commuters_from_gunma_75_scaled %>% summarise(n = sum(n), n_scaled = sum(n_scaled))
+
+
+# Filter trips within gunma 
+
+commuters_within_gunma <- commuters_cleaned %>% 
+  filter(str_starts(from, "10")) %>% 
+  filter(str_starts(to, "10")) %>%
+  filter(!str_ends(from, "00")) %>% 
+  filter(!str_ends(to, "00")) %>% 
+  replace_na(list(n = 0)) 
+
+# 767943 trips within gunma
+commuters_within_gunma %>% summarise(n = sum(n))
+
+# 6176 trips with code 99998 + and 21241 trips with 99999(unknown/foreign)
+commuters_cleaned %>% filter(from == "10000") %>% filter(str_starts(to,"9999"))
+commuters_within_gunma_target <- 767943 + 6176 + 21241
+
+
+# scale
+commuters_within_gunma_scaled <- scale_counts_exact(commuters_within_gunma,commuters_within_gunma_target)
+
+commuters_within_gunma_scaled %>% summarise(n_scaled = sum(n_scaled))
+
+
+
+# combine all three subpopulations:
+commuters_scaled_combined <- bind_rows(commuters_within_gunma_scaled, commuters_from_gunma_75_scaled %>% select(-id), commuters_to_gunma_75_scaled %>% select(-id))
+
+# sanity check
+# total is 903984
+commuters_scaled_combined %>% drop_na(from,to) %>% summarise(n = sum(n), n_scaled = sum(n_scaled))
+
+
+# total = 824500 + 847314 - 767943 = 903871
+# about 113 off, due to rounding errors, but I think this good enough...
+commuters_cleaned %>% filter((from == "00000" & to == "10000") | (from == "10000" & to == "00000") | (from == "10000" & to == "10000"))
+
+
+commuters_scaled_combined %>% select(-n) %>% drop_na(from,to) %>% 
+write_csv("../shared-svn/projects/matsim-gunma/data/processed/commuters_od_matrix/work_od_matrix_scaled.csv")
+
+
+
+```
+
+
+
+
+Create reference file for Activities Dashboard
+
+includes work activities in Gunma, originating from anywhere in the country
+
+id,count,relative_density,density,area
+```{r}
+
+# jp_shp <- st_read("../shared-svn/projects/matsim-gunma/data/raw/shp/nationwide_municip_2020/N03-20_200101.shp") %>% select(id = N03_007) %>% st_transform(2450) %>% mutate(area = as.numeric(st_area(.))) %>% st_drop_geometry() %>% group_by(id) %>% summarise(area = sum(area))
+
+area_per_municipality <- jis_zones_shp %>%  mutate(area = as.numeric(st_area(.))) %>% st_drop_geometry() %>% group_by(id) %>% summarise(area = sum(area))
+
+
+commuters_cleaned %>%
+  filter(from %in% c("00000")) %>% 
+  filter(!str_ends(to,"00")) %>% 
+  filter(str_starts(to,"10")) %>% 
+  select(id = to, count = n) %>% 
+  left_join(area_per_municipality) %>% 
+  mutate(area = area / 1000 / 1000) %>% 
+  mutate(density = count / area) %>% 
+  mutate(relative_density = density / mean(density, na.rm = TRUE)) %>% 
+  mutate(id = paste0('"', id, '"')) %>%
+  # mutate(id = as.numeric(id)) %>% 
+  write_csv("resources/activities_work_per_region-ref.csv")
+
+
+  
+
+```
+
+
+
+## Produce Sim/Ref Files for AggrOD Dashboard
+MATSim Output
+```{r}
+
+sample_multiplier <- 4
+
+output_persons <- read_delim("output/eval.output_persons.csv.gz") 
+
+output_trips <- read_delim(
+  "output/eval.output_trips.csv.gz", delim = ";"
+)
+
+# sim
+od_sim <- output_trips %>% 
+  filter(end_activity_type == "work") %>% 
+  group_by(person) %>% 
+  summarise(end_x = first(end_x), end_y = first(end_y)) %>% 
+  st_as_sf(coords = c("end_x","end_y"), crs=2450) %>% 
+  st_join(jis_zones_shp) %>%
+  st_drop_geometry() %>% 
+  left_join(output_persons %>% select(person,zone), by = "person") %>% 
+  select(person, from = zone, to = id) %>%  
+  # mutate(from = sprintf('%05d', from)) %>% 
+  # mutate(to = str_remove_all(to,'"')) %>%
+  group_by(from,to) %>% 
+  summarise(n_sim = sample_multiplier * n()) 
+# for 25% sample
+
+# ref
+#str_ends(from, "000") & from != "00000" & from !="10000" & to == "10000"
+od_ref <- commuters_cleaned %>% 
+  filter(str_starts(to,"10") | str_starts(from,"10")) %>% 
+  filter(!str_ends(from,"00")) %>% 
+  filter(!str_ends(to,"00")) %>% 
+  filter(!str_starts(to,"9999")) %>% 
+  # mutate(from = as.numeric(from), to = as.numeric(to)) %>% 
+  rename(n_ref = n)
+
+
+
+od_comb <- full_join(od_ref,od_sim) %>% 
+  replace_na(list(n_ref = 0, n_sim = 0)) %>% 
+  mutate(diff = n_sim - n_ref) %>% 
+  mutate(pct_diff = diff/n_ref * 100) %>% 
+  arrange(-n_ref) 
+
+
+# TAB 1: WITHIN GUNMA 
+od_comb_gunma_only <- od_comb %>% filter(str_starts(from, "10"),str_starts(to, "10"))
+
+# sim
+od_comb_gunma_only %>% 
+  select(from,to,n_sim) %>%
+  filter(from !=to) %>%
+  write_delim("resources/gunma_od_sim.csv", delim = ";")
+
+#ref
+od_comb_gunma_only %>% 
+  select(from,to,n_ref) %>%
+  filter(from !=to) %>%
+  write_delim("resources/gunma_od_ref.csv", delim = ";")
+
+#diff
+od_comb_gunma_only %>% 
+  mutate(diff = abs(diff)) %>% 
+  select(from,to,diff) %>%
+  filter(from !=to) %>%
+  write_delim("resources/gunma_od_diff.csv", delim = ";")
+  
+
+# TAB 2a: Now the commuter flows to Gunma (on Municipality level)
+
+od_comb_outside_gunma_inflow <- od_comb %>% 
+  filter(!str_starts(from,"10") & str_starts(to, "10"))
+
+# sim
+od_comb_outside_gunma_inflow %>% 
+  select(from,to,n_sim) %>%
+  filter(from !=to) %>%
+  write_delim("resources/gunma_inflow_od_sim.csv", delim = ";")
+
+#ref
+od_comb_outside_gunma_inflow %>% 
+  select(from,to,n_ref) %>%
+  filter(from !=to) %>%
+  write_delim("resources/gunma_inflow_od_ref.csv", delim = ";")
+
+#diff
+od_comb_outside_gunma_inflow %>% 
+  mutate(diff = abs(diff)) %>% 
+  select(from,to,diff) %>%
+  filter(from !=to) %>%
+  write_delim("resources/gunma_inflow_od_diff.csv", delim = ";")
+
+
+# TAB 2b: Now the commuter flows to Gunma (on Municipality level)
+
+
+od_comb_outside_gunma_outflow <- od_comb %>% 
+  filter(str_starts(from,"10") & !str_starts(to, "10")) 
+
+# sim
+od_comb_outside_gunma_outflow %>% 
+  select(from,to,n_sim) %>%
+  filter(from !=to) %>%
+  write_delim("resources/gunma_outflow_od_sim.csv", delim = ";")
+
+#ref
+od_comb_outside_gunma_outflow %>% 
+  select(from,to,n_ref) %>%
+  filter(from !=to) %>%
+  write_delim("resources/gunma_outflow_od_ref.csv", delim = ";")
+
+#diff
+od_comb_outside_gunma_outflow %>% 
+  mutate(diff = abs(diff)) %>% 
+  select(from,to,diff) %>%
+  filter(from !=to) %>%
+  write_delim("resources/gunma_outflow_od_diff.csv", delim = ";")
+
+# TAB 3: Now on a prefecture level
+
+od_comb_outside_gunma_pref <- od_comb %>% 
+  separate_wider_position(from, widths = c("from" = 2, 3)) %>% 
+  separate_wider_position(to, widths = c("to" = 2, 3)) %>%
+  group_by(from,to) %>% summarise(n_ref = sum(n_ref), n_sim = sum(n_sim)) %>% 
+  mutate(diff = n_sim-n_ref) %>% 
+  filter(from !=to)
+
+# 3a: inflow
+
+od_comb_outside_gunma_pref_inflow <- od_comb_outside_gunma_pref %>%
+  filter(to == "10")
+
+# sim
+od_comb_outside_gunma_pref_inflow %>% 
+  select(from,to,n_sim) %>%
+  write_delim("resources/gunma_inflow_pref_od_sim.csv", delim = ";")
+
+#ref
+od_comb_outside_gunma_pref_inflow %>% 
+  select(from,to,n_ref) %>%
+  write_delim("resources/gunma_inflow_pref_od_ref.csv", delim = ";")
+
+#diff
+od_comb_outside_gunma_pref_inflow %>% 
+  mutate(diff = abs(diff)) %>% 
+  select(from,to,diff) %>%
+  write_delim("resources/gunma_inflow_pref_od_diff.csv", delim = ";")
+
+# 3b: outflow
+
+od_comb_outside_gunma_pref_outflow <- od_comb_outside_gunma_pref %>%
+  filter(from == "10")
+
+# sim
+od_comb_outside_gunma_pref_outflow %>% 
+  select(from,to,n_sim) %>%
+  write_delim("resources/gunma_outflow_pref_od_sim.csv", delim = ";")
+
+#ref
+od_comb_outside_gunma_pref_outflow %>% 
+  select(from,to,n_ref) %>%
+  write_delim("resources/gunma_outflow_pref_od_ref.csv", delim = ";")
+
+#diff
+od_comb_outside_gunma_pref_outflow %>% 
+  mutate(diff = abs(diff)) %>% 
+  select(from,to,diff) %>%
+  write_delim("resources/gunma_outflow_pref_od_diff.csv", delim = ";")
+
+# and now the filtered prefecture shape file
+
+
+prefectures_shp <- jis_zones_shp %>% st_filter(env100) %>%  separate_wider_position(id, widths = c("id" = 2,  3)) %>% st_as_sf() %>% group_by(id) %>% summarise() %>% st_simplify()
+
+prefectures_shp %>% tm_shape() + tm_polygons()
+
+# prefectures_shp %>% tm_shape() + tm_polygons()
+
+# prefectures_shp %>%  st_write("resources/pref_shp.shp")
+
+# matsim_output <- gunma_shp %>% 
+#   st_join(output_trips %>% st_as_sf(coords = c("end_x","end_y"), crs = 2450) %>% filter(end_activity_type == "work")) %>% 
+#   group_by(N03_007) %>% 
+#   count() %>% 
+#   mutate(n = n * 100)
+
+# jenks binning
+# compare origins as well.
+# average trip length & distribution
+# tm_shape(matsim_output)+tm_polygons(fill = "n", breaks = c(seq(0,150000,10000),Inf))+ tm_title("MATSim Output")
+
+# destinations_data %>% st_drop_geometry() %>% full_join(matsim_output, by = "NAME_2") %>% mutate(diff = n.x - n.y) %>% st_as_sf() %>%  tm_shape()+tm_polygons(fill = "diff") + tm_title("Original Data - MATSim Output")
+```
+
+
+# Deprecated
+
+Education
+```{r}
+edu_commuters <- read_excel("../shared-svn/projects/matsim-gunma/data/raw/2020census/e06_03-01.xlsx", skip = 7)
+
+
+edu_commuters_cleaned <- edu_commuters %>% 
+  rename(from = "...4") %>% 
+  select(!starts_with("...")) %>%
+  slice(-(1:2)) %>% 
+  pivot_longer(cols = -from,names_to = "to",values_to = "n") %>% 
+    separate_wider_delim(from, delim = "_", names = c("from",NA)) %>% 
+    separate_wider_delim(to, delim = "_", names = c("to",NA)) %>% 
+  mutate(n = as.numeric(n)) %>% 
+  drop_na(n)
+
+
+edu_commuters_cleaned %>%
+  filter(from %in% c("00000")) %>% 
+  filter(!str_ends(to,"00")) %>% 
+  filter(str_starts(to,"10")) %>% 
+  select(id = to, count = n) %>% 
+  left_join(jp_shp) %>% 
+  mutate(area = area / 1000 / 1000) %>% 
+  mutate(density = count / area) %>% 
+  mutate(relative_density = density / mean(density, na.rm = TRUE)) %>% 
+  mutate(id = paste0('"', id, '"')) %>%
+  # mutate(id = as.numeric(id)) %>% 
+  write_csv("resources/activities_education_per_region-ref.csv")
+```
+
+
+
+```{r}
+commuters_cleaned %>% 
+  filter(from %in% gunma_shp$N03_007 & to %in% gunma_shp$N03_007) %>%
+  group_by(to) %>% 
+  summarize(n = sum(n)) %>%
+  left_join(gunma_shp, by = c("to" = "N03_007")) %>% 
+  st_as_sf() %>%
+  tm_shape() + tm_polygons(fill = "n", breaks = c(seq(0,150000,10000),Inf)) + tm_title("Census Data")
+  
+```
+
+
+gunma_shp
+```{r}
+district_dict <- data.frame(
+  district_jp = c(
+    "前橋市", "高崎市", "桐生市", "伊勢崎市", "太田市",
+    "沼田市", "館林市", "渋川市", "藤岡市", "富岡市",
+    "安中市", "みどり市", "北群馬郡", "多野郡", "甘楽郡",
+    "吾妻郡", "利根郡", "佐波郡", "邑楽郡"
+  ),
+  district_en = c(
+    "Maebashi City", "Takasaki City", "Kiryu City", "Isesaki City", "Ota City",
+    "Numata City", "Tatebayashi City", "Shibukawa City", "Fujioka City", "Tomioka City",
+    "Annaka City", "Midori City", "Kitagunma District", "Tano District", "Kanra District",
+    "Agatsuma District", "Tone District", "Sawa District", "Ora District"
+  ),
+  stringsAsFactors = FALSE
+)
+
+gunma_shp <- st_read("../shared-svn/projects/matsim-gunma/data/raw/shp/gunma_municip_2020/N03-20200101_10_GML/N03-20_10_200101.shp",options = "ENCODING=CP932")  %>% mutate(district_jp = case_when(is.na(N03_003)~ N03_004, .default = N03_003)) %>% left_join(district_dict) %>% st_transform(2450) 
+
+# prefecture codes / dictionary
+# prefecture_codes <- st_read("../shared-svn/projects/matsim-gunma/data/raw/shp/jp_2450/jp_2450.shp") %>% glimpse() %>% st_drop_geometry() %>% select(ID_1, NAME_1)
+
+
+prefectures_ordered_by_code <- c(
+  "Hokkaido",
+  "Aomori",
+  "Iwate",
+  "Miyagi",
+  "Akita",
+  "Yamagata",
+  "Fukushima",
+  "Ibaraki",
+  "Tochigi",
+  "Gunma",
+  "Saitama",
+  "Chiba",
+  "Tokyo",
+  "Kanagawa",
+  "Niigata",
+  "Toyama",
+  "Ishikawa",
+  "Fukui",
+  "Yamanashi",
+  "Nagano",
+  "Gifu",
+  "Shizuoka",
+  "Aichi",
+  "Mie",
+  "Shiga",
+  "Kyoto",
+  "Osaka",
+  "Hyogo",
+  "Nara",
+  "Wakayama",
+  "Tottori",
+  "Shimane",
+  "Okayama",
+  "Hiroshima",
+  "Yamaguchi",
+  "Tokushima",
+  "Kagawa",
+  "Ehime",
+  "Kochi",
+  "Fukuoka",
+  "Saga",
+  "Nagasaki",
+  "Kumamoto",
+  "Oita",
+  "Miyazaki",
+  "Kagoshima",
+  "Okinawa"
+)
+
+```
+
+
+```{r}
+
+commuters_cleaned %>% 
+  filter(str_ends(to, "000") & to != "00000" & to !="10000" & from == "10000") %>% separate_wider_position(to,c(to = 2, 3))  %>%
+  mutate(to = factor(as.numeric(to),levels = seq(1:47),labels = prefectures_ordered_by_code)) %>%  
+  arrange(n) %>% 
+ggplot() + geom_col(aes(to,n)) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + labs(title = "Commuters FROM Gunma")
+
+```
+

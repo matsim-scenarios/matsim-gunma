@@ -1,0 +1,91 @@
+---
+title: "analyse_calibration"
+format: html
+editor: visual
+---
+
+## XXX
+
+download necessary files
+
+```{bash}
+
+foldername="2026-03-12d-calibration-03_30"
+
+cluster_dir="mc:/net/ils/rehmann/matsim-gunma/$foldername"
+local_dir="$foldername"
+
+
+
+mkdir -p "$local_dir"
+
+scp "$cluster_dir"/runs/*/*.modestats.csv "$local_dir"/
+scp "$cluster_dir"/params/*.yaml "$local_dir"/
+```
+
+libraries
+
+```{r}
+library(tidyverse)
+library(yaml)
+
+# local_dir <- "2026-03-11a-calibration-03-15"
+# local_dir <- "2026-03-11b-calibration-01_15"
+# local_dir <- "2026-03-11c-calibration-01_30" 
+# local_dir <- "2026-03-11d-calibration-03_30" #5
+# local_dir <- "2026-03-12a-calibration-03_15"
+# local_dir <- "2026-03-12b-calibration-01_15" #5 okay
+# local_dir <- "2026-03-12c-calibration-01_30"
+local_dir <- "2026-03-12d-calibration-03_30"
+
+
+# local_dir <- "tmp"
+```
+
+```{r}
+files <- list.files(local_dir, pattern = "\\.ya?ml$", full.names = TRUE)
+configs <- lapply(files, read_yaml)
+
+rows <- list()
+k <- 1
+
+for (runNum in seq_along(configs)) {
+  for (modeNum in seq_along(configs[[runNum]]$planCalcScore$scoringParameters[[1]]$modeParams)) {
+    mode <- configs[[runNum]]$planCalcScore$scoringParameters[[1]]$modeParams[[modeNum]]$mode
+    asc  <- configs[[runNum]]$planCalcScore$scoringParameters[[1]]$modeParams[[modeNum]]$constant
+    rows[[k]] <- data.frame(run = runNum - 1, mode = mode, asc = asc, stringsAsFactors = FALSE)
+    k <- k + 1
+  }
+}
+
+df <- do.call(rbind, rows)
+
+ggplot(df) + geom_line(aes(run,asc, col = mode))  + scale_x_continuous(breaks = seq(0,9, by = 1), minor_breaks = NULL)
+```
+
+```{r}
+files_mode <- list.files(local_dir, pattern = "\\.modestats.csv$", full.names = TRUE)
+mode_stats <- lapply(files_mode, read_delim)
+rows <- list()
+k <- 1
+
+
+library(purrr)
+
+df_mode <- map_dfr(seq_along(mode_stats), \(runNum)
+  mode_stats[[runNum]] %>%
+    slice_tail(n = 1) %>%
+    mutate(run = runNum - 1)
+)
+
+dot_pos <- 5
+goal <-  data.frame(mode = c("bike", "car","ride","walk"), run = c(dot_pos,dot_pos,dot_pos,dot_pos), share = c(0.086,0.682,0.115,0.117))
+
+df_mode %>% 
+  pivot_longer(cols = -c(iteration,run), names_to = "mode", values_to =  "share") %>% 
+  ggplot() + 
+  geom_line(aes(run, share, col = mode)) +
+  geom_point(data = goal, mapping = aes(run, share, col = mode)) +
+  scale_x_continuous(breaks = seq(0,9, by = 1), minor_breaks = NULL)
+
+```

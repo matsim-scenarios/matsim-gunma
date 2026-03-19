@@ -1,0 +1,244 @@
+---
+title: "process_road_counts2"
+output: html_document
+---
+
+# Front Matter
+
+```{r}
+library(tidyverse)
+library(tmap)
+library(sf)
+```
+
+# Process jartic 
+read geometries
+```{r}
+geo_lines <- st_read(
+  "../shared-svn/projects/matsim-gunma/data/raw/road_counts/jartic/locations/断面交通量データ＿群馬/Shp/300F_群馬_矢印.shp",
+  options = "ENCODING=CP932"
+  )  %>% rename(
+    station_id = `地点番号`,
+    station_name = `地点名称`,
+    mesh_code = `メッシュ`,
+    link_type = `リンク区分`,
+    link_id = `リンク番号`,
+    version = `バージョン`,
+    geometry = geometry
+  ) %>% st_transform(2450)
+
+geo_lines_end <- st_line_sample(geo_lines, sample = 1, type = "regular") %>% st_cast("POINT")
+
+geo_points <- st_read(
+  "../shared-svn/projects/matsim-gunma/data/raw/road_counts/jartic/locations/断面交通量データ＿群馬/Shp/300F_群馬_計測地点.shp",
+  options = "ENCODING=CP932"
+  )%>%
+  rename(
+    station_id = `地点番号`,
+    station_name = `地点名称`,
+    mesh_code = `メッシュ`,
+    link_type = `リンク区分`,
+    link_id = `リンク番号`,
+    version = `バージョン`
+  ) %>% st_transform(2450) 
+
+colnames(geo_points)
+
+tmap_mode("view")
+tm_shape(geo_lines) + tm_lines() + 
+  tm_shape(geo_lines_end) + tm_dots(group = "line_end")  
+  # tm_shape(geo_points) + tm_symbols(fill = "blue",group = "center")
+
+colnames(geo_lines)
+
+# geo_lines %>% view()
+```
+
+
+
+
+
+```{r}
+data <- read_csv(
+  "../shared-svn/projects/matsim-gunma/data/raw/road_counts/jartic/counts/2026_01/typeB_gumma_2026_01/群馬県警_202601.csv",
+  locale = locale(encoding = "CP932")
+) %>% view()
+    rename(
+    time = `時刻`,
+    source_code = `情報源コード`,
+    station_id = `計測地点番号`,
+    station_name = `計測地点名称`,
+    mesh2_code = `2次メッシュコード`,
+    link_type = `リンク区分`,
+    link_id = `リンク番号`,
+    traffic_volume = `断面交通量`,
+    distance_from_link_end_10m = `リンク終端からの距離（×10m）`,
+    link_version = `リンクバージョン`
+  )
+
+
+```
+
+
+merged
+
+```{r}
+data_filtered <- data  %>% filter(time =="2026/01/15 08:00")
+
+merged <- data_filtered %>% left_join(geo_lines, by = "station_id") %>% st_as_sf()
+
+tmap_mode("view")
+tm_shape(merged) + tm_lines(col = "traffic_volume", lwd = 2)
+```
+
+# Read & Process MATSim Network
+Read and convert MATSim geometries
+
+ [1] "highway.unclassified"   "highway.residential"    "highway.tertiary"       "highway.cycleway"      
+ [5] "highway.secondary"      "highway.trunk"          "highway.primary"        "highway.motorway_link" 
+ [9] "highway.trunk_link"     "highway.path"           "highway.secondary_link" "highway.primary_link"  
+[13] "highway.service"        "highway.motorway"    
+```{r}
+
+# Read the CSV
+matsim_network_geos_raw <- read.csv("input/v1.4/gunma-v1.4-network-linkGeometries.csv", stringsAsFactors = FALSE)
+
+# Read MATSim Network, so as to only keep match links that are actually present in the network:
+matsim_cleaned_network <- matsim::read_network("input/v1.4/gunma-v1.4-network.xml")
+
+ids_matsim_cleaned_network <- matsim_cleaned_network$links %>% 
+  filter(!type %in% c("highway.path","highway.cycleway","highway.residential")) %>%  pull(id)
+
+# filter geometries to only include those
+
+matsim_network_geos <- matsim_network_geos_raw %>% filter(LinkId %in% ids_matsim_cleaned_network)
+
+# Function to convert the Geometry column into a MULTILINESTRING
+parse_multilinestring <- function(geom_str) {
+  # Split by "),(" to separate points
+  coords <- str_extract_all(geom_str, "\\(([^)]+)\\)")[[1]]
+  
+  # Convert each "(x,y)" into numeric vector
+  coords_list <- lapply(coords, function(x) {
+    nums <- str_remove_all(x, "[()]") %>% str_split(",") %>% unlist()
+    as.numeric(nums)
+  })
+  
+  # In this file, each row seems to be a single line (so just wrap as one line)
+  st_multilinestring(list(do.call(rbind, coords_list)))
+}
+
+# Apply to each row
+matsim_network_geos_sf <- matsim_network_geos %>%
+  rowwise() %>%
+  mutate(geometry = st_sfc(parse_multilinestring(Geometry))) %>%
+  st_as_sf() %>%
+  ungroup()
+
+st_crs(matsim_network_geos_sf) <- 2450
+
+saveRDS(matsim_network_geos_sf, "../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf.rds")
+
+
+gunma <- st_read("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/zzz_deprecated/gunma_2450/gunma_2450.shp")
+matsim_network_geos_sf_filtered <- matsim_network_geos_sf %>% st_filter(gunma)
+
+saveRDS(matsim_network_geos_sf_filtered, "../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf_filtered.rds")
+
+
+matsim_network_geos_sf <- readRDS("../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf.rds")
+matsim_network_geos_sf_filtered <- readRDS("../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf_filtered.rds")
+
+
+
+```
+
+
+Initial Graphic
+```{r}
+
+# make 20m buffer around points
+geo_point_buffer <- geo_points %>% st_buffer(20)
+
+tm_shape(matsim_network_geos_sf_filtered) + tm_lines() +
+  tm_shape(merged) + tm_lines(col = "red") +
+  tm_shape(geo_point_buffer) + tm_polygons(fill = "red")
+```
+
+find all matsim links that intersect with this buffer:
+```{r}
+candidates <- geo_point_buffer %>% st_join(matsim_network_geos_sf_filtered) %>% select(station_id,LinkId) %>% st_drop_geometry()
+
+tm_shape(matsim_network_geos_sf_filtered %>% filter(LinkId %in% candidates$LinkId)) + tm_lines() +
+  # tm_shape(merged) + tm_lines(col = "red") +
+  tm_shape(geo_points) + tm_dots(fill = "red")
+```
+
+
+function to calculate bearing
+```{r}
+get_angle <- function(line) {
+  coords <- st_coordinates(line)
+  p1 <- coords[1, 1:2]
+  p2 <- coords[nrow(coords), 1:2]
+  atan2(p2[2] - p1[2], p2[1] - p1[1]) * 180 / pi
+}
+```
+
+
+calculate angle of matsim links & jartic links:
+```{r}
+angles_matsim <- matsim_network_geos_sf_filtered %>%
+  filter(LinkId %in% candidates$LinkId) %>%   
+  mutate(angle_matsim = sapply(geometry, get_angle)) %>% st_drop_geometry() %>% select(LinkId,angle_matsim)
+  
+
+angles_jartic <- geo_lines %>% mutate(angle_jartic = sapply(geometry, get_angle)) %>% st_drop_geometry() %>%  select(station_id,angle_jartic)
+
+candidates_angles <- candidates %>% left_join(angles_jartic) %>% left_join(angles_matsim)
+```
+
+
+~~filter matches to be maximally 45 degrees apart~~
+~~We filtered from 2528 matches to 1040 matches --> we wanna whittle this down to 761~~
+We've filtered to the closest angles. 
+
+```{r}
+candidates2 <- candidates_angles %>% mutate(angle_diff = abs(angle_jartic - angle_matsim)) %>% group_by(station_id) %>% filter(angle_diff == min(angle_diff)) 
+
+candidates2$station_id %>% unique() %>% length()
+candidates2$LinkId %>% unique() %>% length()
+
+tm_shape(matsim_network_geos_sf_filtered %>% filter(LinkId %in% candidates2$LinkId)) + tm_lines() +
+  # tm_shape(merged) + tm_lines(col = "red") +
+  tm_shape(geo_points) + tm_dots(fill = "red")
+
+```
+
+There are a couple stations where the same matsim link (LinkID) is matched to multiple jartic stations. For now we will pick the **first** jartic station
+
+added factor of 0.75 to counts to account for freight and commercial traffic .
+```{r}
+
+final <- candidates2 %>% group_by(LinkId) %>% 
+  summarise(station_id = first(station_id)) %>% 
+  left_join(data) %>% 
+  select(LinkId,station_id,time, traffic_volume) %>% 
+  separate_wider_delim(time, delim = " ", names = c("date","time")) %>% 
+  filter(date == "2026/01/15") %>% 
+  separate_wider_delim(time, delim = ":", names = c("hour","minute")) %>% 
+  group_by(LinkId,hour) %>% 
+  summarise(hourly_volume = sum(traffic_volume), cnt = n()) %>% 
+  # group_by(cnt) %>% count() %>% view()
+  # filter(cnt==12) %>% 
+  select(LinkId, time = hour, count = hourly_volume) %>%
+  mutate(time = paste0("traffic_",time,"h")) %>% 
+  mutate(count = count * 0.75)
+  # mutate(count = as.double(count)) %>% 
+  # mutate(count =  sprintf("%.1f", count))
+
+write_csv(final,"../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_linkId_to_roadcounts_jartic.csv")
+```
+
+
+

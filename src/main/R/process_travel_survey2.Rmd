@@ -1,0 +1,609 @@
+---
+title: "proces_travel_survey2"
+output: html_document
+date: "2026-02-10"
+---
+
+This script is adapted from Dr. Lichen LUO 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Frontmatter
+Libraries
+```{r}
+library(data.table)
+library(stringr)
+library(plyr)
+library(dplyr)
+# library(rgdal)
+library(sp)
+library(sf)
+library(stringi)
+library(readr)
+```
+# Lichen's Wrangling & Filtering 
+
+Read Input data
+```{r}
+df_raw<-fread("../shared-svn/projects/matsim-gunma/data/raw/travel_survey/pt.csv")
+setnames(df_raw, c("レコード区分",	"票区分",	"回収分類",	"バッチ番号",	"整理番号小ゾーン",	"整理番号世帯SEQ",	"世帯人数",	"調査年次",	
+                    "現住所", "現住所「番」「番地」",	"現住所「号」",	"所有車両軽乗用車",	"所有車両乗用車",	"所有車両軽貨物車",	"所有車両貨物自動車",
+                    "所有車両自転車",	"所有車両原動機付自転車",	"所有車両自動二輪車",	"個人番号",	"世帯票性別",	"世帯票年齢",	"職業",	"就業形態",
+                    "勤務先・通学先・通園先の所在地",	"勤務先・通学先・通園先の所在地「番」「番地」",	"勤務先・通学先・通園先の所在地「号」",
+                    "外出の際の付き添い",	"保有運転免許①",	"保有運転免許②", "自由に使える自動車", "調査日月", "調査日日","トリップ有無",
+                    "トリップ数","トリップ番号",	"出発地区分",	"出発地ゾーン",	"出発地「番」「番地」",	"出発地「号」",	"出発地施設の種類",
+                    "出発時刻午前・午後・翌午前",	"出発時刻時",	"出発時刻分",	"到着地区分",	"到着地ゾーン",	"到着地「番」「番地」", 
+                    "到着地「号」",	"到着地施設の種類",	"到着時刻午前・午後・翌午前・翌午後",	"到着時刻時",	"到着時刻分",	"着目的",
+                    "交通手段①手段",	"交通手段①所要時間","交通手段①乗換地点","交通手段②手段","交通手段②所要時間","交通手段②乗換地点	",
+                    "交通手段③手段",	"交通手段③所要時間","交通手段③乗換地点",	"交通手段④手段","交通手段④所要時間"	,"交通手段④乗換地点",
+                    "交通手段⑤手段",	"交通手段⑤所要時間",	"駐輪場所",	"自動車利用運転有無",	"自動車利用自動車の所有者",	"自動車利用乗車人員",
+                    "自動車利用駐車場所",	"自動車利用有料道路利用有無",	"自動車利用乗車ICコード",	"自動車利用降車ICコード",	"拡大係数個人",
+                    "拡大係数トリップ",	"所有車両自動車台数",	"所有車両二輪車台数",	"所有車両自動車所有の有無",	"所有車両二輪車所有の有無",
+                    "トリップ所要時間着時刻－発時刻",	"トリップ所要時間アンリンクト積み上げ",	"発目的",	"目的種類分類0",	"目的種類分類Ⅰ",
+                    "目的種類分類Ⅱ",	"目的種類分類Ⅲ","代表交通手段分類0","代表交通手段分類Ⅰ", "代表交通手段分類Ⅱ",	"代表交通手段分類Ⅲ",
+                    "マストラ乗車代表交通手段",	"マストラ乗車駅バス停コード",	"マストラ乗車直接端末手段（分類０）",	"マストラ乗車代表端末手段",
+                    "マストラ乗車直接端末所要時間",	"マストラ乗車代表端末所要時間",	"マストラ乗車端末全体所要時間",	"マストラ降車代表交通手段",
+                    "マストラ降車駅バス停コード",	"マストラ降車直接端末手段",	"マストラ降車代表端末手段",	"マストラ降車直接端末所要時間",
+                    "マストラ降車代表端末所要時間",	"マストラ降車端末全体所要時間",	"現住所マッチングレベル",	"現住所緯度",	"現住所経度",
+                    "通勤・通学先マッチングレベル",	"通勤・通学先緯度",	"通勤・通学先経度",	"出発地マッチングレベル",	"出発地緯度",
+                    "出発地経度", "到着地マッチングレベル",	"到着地緯度",	"到着地経度"))
+
+
+```
+
+Wrangling
+
+Function to transform coords
+```{r}
+
+transform_coords_safe <- function(dt, xcol, ycol, crs_from = 4326, crs_to = 2450) {
+  
+  # Identify complete coordinate rows
+  valid <- !is.na(dt[[xcol]]) & !is.na(dt[[ycol]])
+  
+  # Prepare output matrix filled with NA
+  result <- matrix(NA_real_, nrow = nrow(dt), ncol = 2)
+  
+  if (any(valid)) {
+    sf_obj <- st_as_sf(
+      dt[valid],
+      coords = c(xcol, ycol),
+      crs = crs_from,
+      remove = FALSE
+    )
+    
+    sf_obj <- st_transform(sf_obj, crs_to)
+    result[valid, ] <- st_coordinates(sf_obj)
+  }
+  
+  return(result)
+}
+```
+
+```{r}
+ df_cleaned <- data.table(matrix(nrow = nrow(df_raw), ncol = 0))    
+    df_cleaned[,":="(id_person = df_raw$"整理番号小ゾーン"*100000000000 + df_raw$"整理番号世帯SEQ"*1000000 + 
+                        df_raw$"個人番号"*10000 + df_raw$"世帯票年齢"*100 + df_raw$"職業",
+                      id_person2 = df_raw$"整理番号小ゾーン", 
+                      id_person3 = df_raw$"整理番号世帯SEQ", 
+                      id_person4 = df_raw$"個人番号",
+                      id_household = df_raw$"整理番号小ゾーン"*1000000 + df_raw$"整理番号世帯SEQ"*100 +
+                        df_raw$"世帯人数"*10 + df_raw$"調査年次")]
+ 
+  #tripnum
+    df_cleaned[,"tripnum":=as.numeric(df_raw$"トリップ番号")]
+  
+  #starttime
+    setnames(df_raw,"出発時刻午前・午後・翌午前","arriveAMPM")
+    setnames(df_raw,"出発時刻時","arriveHour")
+    setnames(df_raw,"出発時刻分","arriveMin")
+    df_time<-df_raw[,.SD,.SDcols=c("arriveHour","arriveMin","arriveAMPM")]
+    df_time[arriveHour==99|arriveMin==99|arriveAMPM==9,":="(arriveHour = 9999, arriveMin = 9999)]
+    df_time[arriveAMPM==1,arriveHour:=arriveHour] #converting to military time
+    df_time[arriveAMPM==2,arriveHour:=arriveHour+12L] #converting to military time
+    df_time[arriveAMPM==3,arriveHour:=arriveHour+24L] 
+    df_time[arriveAMPM==4,arriveHour:=arriveHour+36L] 
+    
+    df_time[,"starttime" := arriveHour * 60 + arriveMin]
+    df_time[starttime>9999,"starttime":=-9999]
+    df_cleaned[,"starttime":= as.numeric(df_time$starttime)][is.na(starttime),"starttime":=-9999]
+  
+  #Coordinate
+    df_cleaned[,"h_x":=as.numeric(df_raw$"現住所経度")]#[is.na(h_x),"h_x":=-9999]
+    df_cleaned[,"h_y":=as.numeric(df_raw$"現住所緯度")]#[is.na(h_y),"h_y":=-9999]
+    df_cleaned[,"s_x":=as.numeric(df_raw$"出発地経度")]#[is.na(s_x),"s_x":=-9999]
+    df_cleaned[,"s_y":=as.numeric(df_raw$"出発地緯度")]#[is.na(s_y),"s_x":=-9999]
+    df_cleaned[,"d_x":=as.numeric(df_raw$"到着地経度")]#[is.na(d_x),"d_x":=-9999]
+    df_cleaned[,"d_y":=as.numeric(df_raw$"到着地緯度")]#[is.na(d_y),"d_y":=-9999]
+    df_cleaned[,"ws_x":=as.numeric(df_raw$"通勤・通学先経度")]
+    df_cleaned[,"ws_y":=as.numeric(df_raw$"通勤・通学先緯度")]
+    
+    # transform coordinates
+    coords_h <- transform_coords_safe(df_cleaned[tripnum != 0], "h_x", "h_y")
+    coords_s <- transform_coords_safe(df_cleaned[tripnum != 0], "s_x", "s_y")
+    coords_d<- transform_coords_safe(df_cleaned[tripnum != 0], "d_x", "d_y")
+    # coords_ws<- transform_coords(df_cleaned[tripnum != 0], "ws_x", "ws_y")
+    
+    df_cleaned[tripnum != 0, `:=`(
+      h_x2450 = coords_h[,1],
+      h_y2450 = coords_h[,2],
+      
+      s_x2450 = coords_s[,1],
+      s_y2450 = coords_s[,2],
+      
+      d_x2450 = coords_d[,1],
+      d_y2450 = coords_d[,2]
+      # ws_x2450 = coords_ws[,1],
+      # ws_y2450 = coords_ws[,2],
+    )]
+    
+  
+  #bike
+    df_cleaned[,"bike_hhOwnership":=df_raw$"所有車両自転車"]
+  
+  #age
+    df_cleaned[,"age":=as.numeric(df_raw$"世帯票年齢")]
+  
+  # attributes about household info
+    df_cleaned[,"numMemInHH":= as.numeric(df_raw$"世帯人数")]
+    df_cleaned[,":="("hasMemAgeLess20" = 0, "hasMemAgeLess6" = 0, "hasMemAgeOver65" =0, "hasMemAgeOver75" = 0)]
+    df_cleaned[id_household %in% df_cleaned[age<20,id_household], "hasMemAgeLess20":=1]
+    df_cleaned[id_household %in% df_cleaned[age<6,id_household], "hasMemAgeLess6":=1] # NOT CONSISTENT WITH THE FOLLOWING DataUnderSchoolAge FILTERING 
+    df_cleaned[id_household %in% df_cleaned[age>65,id_household], "hasMemAgeOver65":=1]
+    df_cleaned[id_household %in% df_cleaned[age>75,id_household], "hasMemAgeOver75":=1]
+  
+  #gender
+    df_cleaned[,"male":=0L]
+    df_cleaned[df_raw$"世帯票性別"==1,"male":=1]
+  
+  #license
+    setnames(df_raw,"保有運転免許①","license")
+    df_cleaned[,"license":=0L]
+      df_cleaned[df_raw$license==2,"license":=1] #license = 2 means 免許あり in the questionnaire
+    df_cleaned[df_raw$license==9,"license":=9]
+  
+  #caravailability
+    df_cleaned[,"car_availability":=0L]
+    df_cleaned[df_raw$"自由に使える自動車"==1,"car_availability":=1]
+    df_cleaned[df_raw$"自由に使える自動車"==2,"car_availability":=2]
+    df_cleaned[df_raw$"自由に使える自動車"==9,"car_availability":=9]
+  
+  #car household ownership
+    df_cleaned[,"car_hhOwnership":=df_raw$"所有車両自動車台数"]
+  
+  #job
+    df_cleaned[,"jobType":=df_raw$"職業"]
+    df_cleaned[,"employType":=df_raw$"就業形態"]
+  
+  #accompanyNecessity
+    df_cleaned[,"accompanyNecessity":=df_raw$"外出の際の付き添い"]
+  
+  #trip mode
+    df_cleaned[,"tripmode":=as.numeric(df_raw$"代表交通手段分類Ⅰ")][is.na(tripmode),"tripmode":=99] #tripmode
+    df_cleaned[,"drivingOrNot":=as.numeric(df_raw$"自動車利用運転有無")][is.na(drivingOrNot),"drivingOrNot":=99]  #drivingOrNot
+    df_cleaned[,"whoOwnsTheCar":=as.numeric(df_raw$"自動車利用自動車の所有者")]   #who Owns The Car
+    df_cleaned[,"carOccupancy":=as.numeric(df_raw$"自動車利用乗車人員")]   #car Occupancy
+    df_cleaned[,"usingTollOrNot":=as.numeric(df_raw$"自動車利用有料道路利用有無")]   #using Toll Or Not
+    df_cleaned[,"carParkingType":=as.numeric(df_raw$"自動車利用駐車場所")]   # car parking type
+    df_cleaned[,"bicParkingType":=as.numeric(df_raw$"駐輪場所")]   # bicycle parking type
+  
+  
+  #trippurpose: purpose at destination
+    df_cleaned[,"tripurpose":=as.numeric(df_raw$"着目的")][is.na(tripurpose),"tripurpose":=99]
+    df_cleaned[,"depFacilityType" := df_raw$"出発地施設の種類"]
+    df_cleaned[,"arrFacilityType" := df_raw$"到着地施設の種類"]
+  
+  #tripduration
+    setnames(df_raw,"トリップ所要時間着時刻－発時刻","tripduration")
+    df_cleaned[,"tripduration":=as.numeric(df_raw$tripduration)][is.na(tripduration),"tripduration":=9999]
+    df_cleaned[,"arrivetime":=as.numeric(starttime)+as.numeric(tripduration)]
+  
+  #job aggregate
+    df_cleaned[jobType == 1, jobTypeAggr := "prim sector"]
+    df_cleaned[jobType %in% c(2,3,4), jobTypeAggr := "seco sector"]
+    df_cleaned[jobType %in% c(5,6,7,8,9,10,11,12,13,14,15,16,17,18), jobTypeAggr := "teri sector"]
+    df_cleaned[jobType == 19, jobTypeAggr := "other"]
+    df_cleaned[jobType %in% c(20,21,22), jobTypeAggr := "student"]
+    df_cleaned[jobType %in% c(23,24,25), jobTypeAggr := "unemployed"]
+  
+  # if you are the 世帯主, then we assume that 自由に使える自動車= 1
+    df_cleaned[id_person4 == 1 & car_availability==9 & car_hhOwnership > 0 & car_hhOwnership != 999, car_availability:=1]
+  
+  # aggregate tripurposes 
+    df_cleaned[(tripurpose==1|tripurpose>9) & tripurpose!=99, tripurpose:=1] # including作業as work
+    df_cleaned[tripurpose==1&arrivetime<=420, tripurpose:=15]
+    df_cleaned[tripurpose==1&arrivetime<=480, tripurpose:=16]
+    df_cleaned[tripurpose==1&arrivetime<=540, tripurpose:=17]
+    df_cleaned[tripurpose==1&arrivetime<=600, tripurpose:=18]
+    df_cleaned[tripurpose==1, tripurpose:=19]
+    
+    #df_cleaned[tripurpose==8, tripurpose:=2]
+    df_cleaned[tripurpose==2&arrivetime<=420, tripurpose:=20]
+    df_cleaned[tripurpose==2&arrivetime<=480, tripurpose:=21]
+    df_cleaned[tripurpose==2&arrivetime<=540, tripurpose:=22]
+    df_cleaned[tripurpose==2&arrivetime<=600, tripurpose:=23]
+    df_cleaned[tripurpose==2, tripurpose:=24]
+    
+    df_cleaned[tripurpose %in% c(15,16,17,18,19), "tripurposeAggr":="work"]
+    df_cleaned[tripurpose %in% c(20,21,22,23,24), "tripurposeAggr":="education"]
+    df_cleaned[tripurpose==3, "tripurposeAggr":="tohome"]
+    df_cleaned[tripurpose==4, "tripurposeAggr":="shopping"]
+    df_cleaned[tripurpose %in% c(5,6), "tripurposeAggr":="leisure"]
+    df_cleaned[tripurpose==7, "tripurposeAggr":="medical"]
+    df_cleaned[tripurpose==8, "tripurposeAggr":="other"]
+    df_cleaned[tripurpose==9, "tripurposeAggr":="pickup"]
+  
+  # aggregate tripmodes
+    df_cleaned[tripmode %in% c(1,2,3,4), "CHOICE_mode":="pt"]
+    df_cleaned[tripmode %in% c(14,15), "CHOICE_mode":="walk"]
+    df_cleaned[tripmode==13, "CHOICE_mode":="bicycle"]
+    df_cleaned[tripmode %in% c(6,8,9,10), "CHOICE_mode":="car"]
+  # if you are not using car, then these attributes have no meaning
+    df_cleaned[CHOICE_mode != "car",":="(drivingOrNot = 99, whoOwnsTheCar = 99, carOccupancy = 99, usingTollOrNot = 99)]
+  # if you are using car while has no license, then you must be a passenger
+    df_cleaned[CHOICE_mode == "car" & drivingOrNot==9 & license==0, drivingOrNot := 2]
+    df_cleaned[CHOICE_mode == "car" & drivingOrNot==1, "CHOICE_mode":="car_driver"]
+    df_cleaned[CHOICE_mode == "car" & drivingOrNot==2, "CHOICE_mode":="car_passen"]
+    
+    
+  # number of trips, by person
+    df_cleaned[,numOfTrips := max(tripnum), by=id_person]
+  
+```
+
+Filtering 
+```{r}
+df_filtered <- df_cleaned
+
+
+# Missing Values
+      df_filtered<-df_filtered[!id_person %in% df_filtered[license==9 | car_availability==9, id_person]]
+      df_filtered<-df_filtered[!id_person %in% df_filtered[car_hhOwnership==999, id_person]]
+      df_filtered<-df_filtered[!id_person %in% df_filtered[is.na(h_x) | is.na(h_y), id_person]]
+      df_filtered<-df_filtered[!id_person %in% df_filtered[jobType == 99, id_person]]
+      df_filtered<-df_filtered[!id_person %in% df_filtered[employType == 9, id_person]]
+      
+  # for has trip only  
+      #remove missing values for trip specific variables (only with those had trips)
+      df_filtered<-df_filtered[!id_person %in% df_filtered[tripnum != 0 & starttime == -9999, id_person]]
+      df_filtered<-df_filtered[!id_person %in% df_filtered[tripnum != 0 & tripmode == 99, id_person]]
+      df_filtered<-df_filtered[!id_person %in% df_filtered[tripnum != 0 & (tripduration==99 | tripurpose==99) , id_person]]
+      df_filtered<-df_filtered[!id_person %in% df_filtered[tripnum != 0 & (is.na(s_x) | is.na(s_y) | is.na(d_x) | is.na(d_y)), id_person]]
+      
+      
+# Inexplicable    
+      
+      # O=D
+      df_filtered<-df_filtered[!id_person %in% df_filtered[tripnum != 0 & s_x == d_x & s_y == d_y, id_person]]
+      
+      # remove persons who has "tohome" trips but are not heading home
+      df_filtered<-df_filtered[!id_person %in% df_filtered[tripnum != 0 & (d_x != h_x | d_y != h_y) & tripurposeAggr == "tohome", id_person]]
+  
+      # remove first or the last trips that not start/end at home
+      df_filtered<-df_filtered[!id_person %in% df_filtered[tripnum == 1 & (s_x != h_x | s_y != h_y), id_person]] #21382
+      df_filtered<-df_filtered[!id_person %in% df_filtered[tripnum != 0 & tripnum == numOfTrips & (d_x != h_x | d_y != h_y), id_person]]
+    
+# Assumption
+    # not applicable modes
+      df_filtered<-df_filtered[!id_person %in% df_filtered[tripnum != 0 & tripmode %in% c(5,7,11,12,16), id_person]] 
+      
+      
+```
+
+# Prepare for MATSim
+
+Detach plyr, so I can use my normal tidyverse workflow
+```{r}
+detach("package:plyr", unload = TRUE)
+library(tidyverse)
+library(tmap)
+library(tmaptools)
+
+```
+
+
+
+Read municipalities, and aggregate to district level, and translate to english
+```{r}
+district_dict <- data.frame(
+  district_jp = c(
+    "前橋市", "高崎市", "桐生市", "伊勢崎市", "太田市",
+    "沼田市", "館林市", "渋川市", "藤岡市", "富岡市",
+    "安中市", "みどり市", "北群馬郡", "多野郡", "甘楽郡",
+    "吾妻郡", "利根郡", "佐波郡", "邑楽郡"
+  ),
+  district_en = c(
+    "Maebashi City", "Takasaki City", "Kiryu City", "Isesaki City", "Ota City",
+    "Numata City", "Tatebayashi City", "Shibukawa City", "Fujioka City", "Tomioka City",
+    "Annaka City", "Midori City", "Kitagunma District", "Tano District", "Kanra District",
+    "Agatsuma District", "Tone District", "Sawa District", "Ora District"
+  ),
+  stringsAsFactors = FALSE
+)
+
+gunma_shp <- st_read("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/jis_zones/N03-20_200101.shp",options = "ENCODING=CP932")  %>% mutate(district_jp = case_when(is.na(N03_003)~ N03_004, .default = N03_003)) %>% left_join(district_dict) %>% st_transform(2450) 
+
+gunma_shp_landuse <- gunma_shp %>%
+  separate_wider_delim(district_en, delim = " ", names = c(NA,"landuse"), cols_remove = FALSE) %>% 
+  st_as_sf()  
+
+   
+```
+
+
+## Output 1: Persons
+idx
+region_type
+gender
+employment
+age
+carAvail = defined as holds license AND has car_availability (exclusive or shared). unknowns are recorded as no 
+```{r}
+
+# trips_raw %>% view()
+persons <- df_filtered %>% 
+  mutate(carAvail = (license == 1 & car_availability %in% c(1,2))) %>% 
+  group_by(id_person) %>% 
+  summarise(gender = case_when(first(male) == 1 ~ "m", .default = "f"), 
+            age = first(age), 
+            mobile_on_day = first(numOfTrips) > 0,
+            h_x = first(h_x),
+            h_y = first(h_y),
+            jobTypeAggr = first(jobTypeAggr),
+            carAvail = first(carAvail)) %>% 
+  st_as_sf(coords = c("h_x","h_y"), crs=4326) %>% 
+  st_transform(2450) %>% 
+  st_join(gunma_shp_landuse %>% select(landuse)) %>%
+  rename(idx = id_person) %>% 
+    # the only options are district and city atm
+  rename(region_type = landuse) %>% 
+  mutate(employment = case_when(jobTypeAggr %in% c("prim sector","seco sector","teri sector") ~ "employed",
+                                .default = jobTypeAggr)) %>% 
+  select(!jobTypeAggr)
+
+persons %>% st_drop_geometry() %>% 
+  write_csv("../shared-svn/projects/matsim-gunma/data/processed/travel_survey/person_attributes.csv")
+  
+  
+  # tmap_mode("view")
+  # tm_basemap("Esri.WorldGrayCanvas") + 
+  # tm_shape(gunma_shp_landuse %>% st_as_sf()) +
+  #   tm_polygons(fill = "landuse") +
+  #   tm_shape(persons %>% st_as_sf()) +
+  #   tm_dots(alpha = 0.3, size = .1)
+  
+```
+
+
+## Output 2: Activities
+
+All agents in this cleaned dataset start their day at home... 
+```{r}
+df_filtered %>% group_by(id_person) %>% summarise(h_x = first(h_x), h_y = first(h_y),s_x = first(s_x), s_y = first(s_y), numOfTrips = first(numOfTrips)) %>% 
+  mutate(chk = ((h_x == s_x) & (h_y == s_y)) | numOfTrips == 0) %>% 
+  filter(!chk)
+
+```
+
+for the output:
+p_id
+type
+duration (in minutes)
+leg_duration
+leg_dist
+leg_mode (leg to activity)
+
+So, LL removed all public transit trips from the processed travel survey...
+Also, LL removed all act types except for "home","work","other", NA
+```{r}
+
+# what leg_modes do we have?
+df_filtered %>% pull(CHOICE_mode) %>% unique()
+df_filtered %>% pull(tripurposeAggr) %>% unique()
+
+# tripurposeAggr has more information (e.g. doesn't aggregate medical into 'other')
+home_acts <- df_filtered %>% 
+  group_by(p_id =id_person) %>%
+  summarise(duration = first(starttime)) %>%
+  mutate(act_num = 0, type = "home", leg_dist = -1, leg_duration = -1)
+
+non_home_acts <- df_filtered %>% 
+  mutate(leg_dist = round(sqrt((d_x2450 - s_x2450)^2 + (d_y2450-s_y2450)^2))) %>% 
+  mutate(dist_to_home = round(sqrt((d_x2450 - h_x2450)^2 + (d_y2450-h_y2450)^2))) %>% 
+    mutate(leg_mode = case_when(CHOICE_mode == "car_driver"~ "car", 
+                               CHOICE_mode == "car_passen" ~ "ride",
+                               CHOICE_mode == "bicycle" ~ "bike",
+                               is.na(CHOICE_mode) ~ "walk",
+                                .default = CHOICE_mode)) %>% 
+  mutate(type = case_when(tripurposeAggr %in% c("other", "medical", "shopping", "pickup", NA, "leisure") ~ "other",
+                          tripurposeAggr == "tohome" ~ "home",
+                          .default = tripurposeAggr)) %>% 
+  group_by(id_person) %>% 
+  mutate(duration = lead(starttime) - arrivetime, duration =  replace_na(duration, -1)) %>%
+  ungroup() %>% 
+  
+  select(p_id =id_person, act_num = tripnum, type, duration , leg_duration = tripduration, leg_mode ,leg_dist,dist_to_home)
+
+
+combined_acts <- bind_rows(non_home_acts,home_acts) %>% arrange(p_id,act_num)
+
+combined_acts %>% view()
+    
+write_csv(combined_acts,"../shared-svn/projects/matsim-gunma/data/processed/travel_survey/activities.csv")
+```
+
+# Reference Files for SimWrapper
+
+We are going to make the reference files based on our **processed** trips files: 
+```{r}
+
+trips_processed <- df_filtered %>% 
+  mutate(dist = round(sqrt((d_x2450 - s_x2450)^2 + (d_y2450-s_y2450)^2))) %>% 
+  drop_na(dist) %>% 
+    mutate(mode = case_when(CHOICE_mode == "car_driver"~ "car", 
+                               CHOICE_mode == "car_passen" ~ "ride",
+                               CHOICE_mode == "bicycle" ~ "bike",
+                               is.na(CHOICE_mode) ~ "walk",
+                                .default = CHOICE_mode)) %>% 
+  mutate(dist_group = case_when(
+    dist < 1000 ~ "0 - 1000",
+    dist < 2000 ~ "1000 - 2000",
+    dist < 5000 ~ "2000 - 5000",
+    dist < 10000 ~ "5000 - 10000",
+    dist < 20000 ~ "10000 - 20000",
+    .default = "20000+")) %>% 
+  filter(mode != "pt") %>% 
+  mutate(sex = case_when(male == 0 ~ "Female", .default = "Male")) %>% 
+    select(id_person, mode, dist, dist_group, age, sex)
+
+
+# MODE SHARE (trip based)
+trips_processed  %>% 
+  group_by(mode) %>% 
+  summarise(n = n()) %>% 
+  mutate(share = n/sum(n))
+
+
+
+
+```
+### Modal Split by Distance class
+```{r}
+
+
+# TRIP BASED MODAL SPLIT, grouped into mode and sit group. 
+# sum of share column = 1 
+# resources/mode_share_ref.csv
+trips_processed %>%
+  group_by(mode,dist_group) %>% 
+  summarise(n = n(), dist = sum(dist, na.rm = TRUE)) %>% 
+  filter(!is.na(mode)) %>%
+  ungroup() %>%
+  mutate(share_trips = n/sum(n), share_dist = dist/sum(dist)) %>% 
+  select(dist_group, main_mode = mode, share = share_trips, share_dist) %>% 
+  arrange(dist_group) %>% 
+  write_csv("resources/mode_share_ref.csv")
+
+# TRIP BASED MODAL SPLIT, again grouped into mode and dist_group. However, this time the mode shares in each distance group add up to 1.0. This is used for the simwrapper plot row 2 - right. 
+# resources/mode_share_per_dist_ref.csv
+trips_processed %>%
+  group_by(mode,dist_group) %>%
+  count() %>% 
+  group_by(dist_group) %>% 
+  mutate(share = n / sum(n)) %>% 
+  arrange(dist_group) %>% 
+  select(dist_group, main_mode = mode, share) %>%
+  write_csv("resources/mode_share_per_dist_ref.csv")
+ 
+# Share of users that use mode at least once a day:
+# "resources/mode_users_ref.csv"
+pop_size <- df_filtered  %>% pull(id_person) %>% unique() %>% length()
+
+
+trips_processed %>% glimpse()
+trips_processed  %>% 
+  group_by(id_person,mode) %>% 
+  summarise(uses_mode = TRUE) %>% 
+  pivot_wider(names_from = mode, values_from = uses_mode, values_fill = FALSE) %>% 
+  pivot_longer(-id_person, names_to = "mode",values_to = "uses_mode") %>%
+  group_by(mode) %>% 
+  summarise(n = sum(uses_mode)) %>% 
+  mutate(share = n / pop_size) %>% 
+  filter(mode != "NA") %>% 
+  select(main_mode = mode, user = share) %>%
+  write_csv("resources/mode_users_ref.csv")
+
+
+# resources/mode_share_distance_distribution.csv
+# takes share only of mobile people
+trips_processed %>% 
+  mutate(dist_rounded = round(dist,-2)) %>%
+  group_by(mode, dist_rounded) %>%
+  count() %>% 
+  group_by(dist_rounded) %>% 
+  mutate(share = n/sum(n)) %>% 
+  select(mode, share) %>% 
+  ungroup() %>% pivot_wider(names_from = mode,values_from = share, values_fill = 0.0) %>% 
+  rename(dist = dist_rounded) %>% arrange(dist) %>%
+  filter(dist <=30000) %>% 
+  write_csv("resources/mode_share_distance_distribution.csv")
+  
+
+
+```
+
+# Explaratory Analysis
+
+### Modal Split by Age
+```{r}
+trips_processed %>% 
+  mutate(ageGr = case_when(
+    age >= 85 ~ "85+",
+    age >= 75 ~ "75-84",
+    age >= 65 ~ "65-74",
+    age >= 18 ~ "18-64",
+    .default = "0-17"
+    )
+  ) %>% 
+  select(ageGr,mode, dist) %>%
+  group_by(ageGr, mode) %>% 
+  summarise(n = n(), dist = sum(dist, na.rm = TRUE)) %>%
+  group_by(ageGr) %>%
+  mutate(share_trips = n/sum(n), share_dist = dist/sum(dist)) %>% 
+  ggplot() +
+  geom_col(aes(ageGr,share_trips,fill = mode)) +
+  theme_minimal(base_size = 14)
+
+
+```
+
+On my filtered population:
+```{r}
+
+
+persons %>% st_drop_geometry() %>%  filter(age >=95) %>% group_by(gender,region_type) %>% count()
+```
+
+
+
+### License
+
+License:
+- 0 = no
+- 1 = yes
+- 9 = unknown
+
+car_availability
+- 0 = no
+- 1 = yes, exclusive
+- 2 = yes, shared
+- 9 = unknown
+```{r}
+# license only
+df_filtered %>%
+  select(id_person,age, male,license, car_availability) %>%
+  group_by(id_person) %>% 
+  summarise(age = first(age), male = first(male), license = first(license), car_availability = first(car_availability)) %>% 
+    mutate(carAvail = (license == 1)) %>% 
+  # filter(license!=9) %>% 
+  mutate(age_group = case_when(age >= 85 ~ "85+", age >= 75 ~ "75-84", age >= 65 ~ "65-74", age >= 18 ~ "18-64", .default = "0-17" )) %>% 
+  group_by(age_group, male) %>% 
+  summarise(carAvail = sum(carAvail) / n()) %>% mutate(gender = factor(male, levels = c(0,1), labels = c("female","male") )) %>% 
+  ggplot() + geom_col(aes(age_group,carAvail, fill = gender), position = "dodge")
+
+
+# License & CarAvail 
+df_filtered %>%
+  select(id_person,age, male,license, car_availability) %>%
+  group_by(id_person) %>% 
+  summarise(age = first(age), male = first(male), license = first(license), car_availability = first(car_availability)) %>% 
+  mutate(carAvail = (license == 1 & car_availability %in% c(1,2))) %>% 
+  mutate(age_group = case_when(age >= 85 ~ "85+", age >= 75 ~ "75-84", age >= 65 ~ "65-74", age >= 18 ~ "18-64", .default = "0-17" )) %>% 
+  group_by(age_group, male) %>% 
+  summarise(carAvail = sum(carAvail) / n()) %>% mutate(gender = factor(male, levels = c(0,1), labels = c("female","male") )) %>% 
+  ggplot() + geom_col(aes(age_group,carAvail, fill = gender), position = "dodge")
+
+```
+

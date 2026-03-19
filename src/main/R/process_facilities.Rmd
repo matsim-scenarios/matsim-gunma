@@ -1,0 +1,143 @@
+---
+title: "telephonebook"
+output: html_document
+date: "2026-02-02"
+---
+
+
+# Frontmatter
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(purrr)
+```
+
+
+Set inputs and outputs
+```{r}
+in_facilities_dir <- "../shared-svn/projects/matsim-gunma/data/raw/facility_locations_yellowpages/014000201601/P1B62/"
+in_facilities_type <- "../shared-svn/projects/matsim-gunma/data/raw/facility_locations_yellowpages/014000201601/SPEC/TYPECODE.CSV"
+in_jis_75_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp"
+out_facilities <- "../shared-svn/projects/matsim-gunma/data/processed/facility_locations_yellowpages/facility_locations_yellowpages.csv"
+```
+
+# Meat
+Read and translate type codes
+```{r}
+type_code <- read_csv(in_facilities_type,locale = locale(encoding = "CP932"),col_names = c("type","name_jp"))
+
+type_code_major <- type_code %>% separate_wider_position(type,widths = c("type_major" = 2,"type_minor" = 5)) %>% filter(type_minor == "00000") %>% select(type_major, name_jp) %>% mutate(name_en = c(
+  "Fisheries, Agriculture & Forestry",
+  "Mining",
+  "Construction & Civil Engineering",
+  "Food Manufacturing",
+  "Textiles",
+  "Pulp & Paper",
+  "Chemicals & Pharmaceuticals",
+  "Petroleum & Coal Products",
+  "Rubber Products",
+  "Ceramics, Stone & Glass",
+  "Iron & Steel",
+  "Non-Ferrous Metals",
+  "Metal Products",
+  "Machinery",
+  "Electrical Equipment",
+  "Transportation Equipment",
+  "Precision Instruments",
+  "Other Manufacturing",
+  "Commerce",
+  "Finance & Insurance",
+  "Real Estate",
+  "Land Transportation",
+  "Marine Transportation",
+  "Air Transportation",
+  "Warehousing & Logistics",
+  "Telecommunications & Information Services",
+  "Electricity & Gas",
+  "Technical & Professional Services",
+  "Sports Facilities",# other
+  "Sporting Goods Stores",# other
+  "Entertainment & Dining", #other 
+  "Tourism & Leisure", # other
+  "Hospitals & Welfare",# other
+  "Large-Scale Retail Stores",# other
+  "Personal & Household Services",
+  "Automotive-Related",
+  "Education & Learning", #education
+  "Government & Public Institutions",
+  "Other" # other
+))
+
+# type_code_major %>% view()
+```
+
+
+Read JIS zones within 75km of Gunma & determine what prefectures are present
+```{r}
+jis_75 <- st_read(in_jis_75_shp) %>% 
+  st_transform(4612)
+
+prefecture_codes <- jis_75 %>% st_drop_geometry() %>%  separate_wider_position(id, widths = c(id = 2, 3)) %>% pull(id) %>% unique()
+
+```
+
+
+Read Facilities from yellowpages for each relevant prefecture:
+- keep only columns for x,y coordinates and location type
+- xform into sf, and check whether it is within the JIS zones file for the 75km envelope
+
+```{r}
+locs_raw <- map_dfr(prefecture_codes, function(pref) {
+  
+  jis_75_for_pref <- jis_75 %>% filter(str_starts(id,pref))
+
+  dir_path <- paste0(in_facilities_dir, pref)
+
+  files <- list.files(dir_path, pattern = "\\.CSV$", full.names = TRUE)
+
+  map_dfr(files, ~ read_csv(
+    .x,
+    locale = locale(encoding = "CP932"),
+    col_names = FALSE,
+    col_types = cols(.default = col_character()),
+    show_col_types = FALSE
+  )) %>%
+    select(type = X11, x = X21, y = X22) %>% 
+    st_as_sf(coords = c("x","y"), crs = 4612) %>% 
+    st_join(jis_75_for_pref, left = FALSE)
+
+})
+```
+
+Define whether each facility could be a work, education, or other activity based on the type. 
+```{r}
+locs_cleaned <- locs_raw %>% 
+  separate_wider_position(type,widths = c("type_major" = 2,"type_minor" = 5)) %>% 
+  mutate(work = TRUE) %>% 
+  mutate(education = type_major == "37") %>% 
+  mutate(other = type_major %in% c("29","30","31","32","33","34")) %>% 
+  left_join(type_code_major)  %>% 
+  st_as_sf()
+  # st_as_sf(coords = c("x","y"), crs = 4612)
+```
+
+
+View map and write output csv
+```{r}
+tmap_mode("view")
+locs_cleaned %>% sample_n(10000) %>% tm_shape() + tm_dots(alpha = 0.05)
+
+
+
+locs_cleaned %>% st_transform(2450) %>%   mutate(
+    x = st_coordinates(geometry)[, 1],
+    y = st_coordinates(geometry)[, 2],
+  ) %>%  
+  select(x,y,work,education,other, type_en = name_en, zone = id) %>%
+  st_drop_geometry() %>%
+  write_csv(out_facilities)
+
+```
+

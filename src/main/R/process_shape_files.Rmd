@@ -1,0 +1,113 @@
+---
+title: "process_shape_files"
+output: html_document
+---
+
+# Frontmatter
+Load Libraries
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+```
+
+
+Input and Output Filenames
+```{r}
+
+
+in_shp <- "../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/jis_zones/N03-20_200101.shp"
+out_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/jis_zones/jis_zones.shp"
+out_75_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp"
+
+out_env_00_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/study_area_boundary/gunma_00km_envelope.shp"
+out_env_75_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/study_area_boundary/gunma_75km_envelope.shp"
+
+out_env_00_poly <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/study_area_boundary/gunma_00km_envelope.poly"
+out_env_75_poly <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/study_area_boundary/gunma_75km_envelope.poly"
+
+```
+
+
+
+Function to write .poly file
+
+```{r}
+write_poly <- function(sf_obj, file, name = "polygon") {
+  
+  epsg <- sf::st_crs(sf_obj)$epsg
+  if (is.na(epsg) || epsg != 4326) {
+    stop("CRS must be EPSG:4326")
+  }
+    
+  coords <- sf::st_coordinates(sf::st_geometry(sf_obj)[[1]])[, 1:2]
+
+  con <- file(file, "w")
+  on.exit(close(con))
+
+  writeLines(name, con)
+  writeLines("1", con)
+
+  apply(coords, 1, function(x) {
+    writeLines(sprintf("  %.10f  %.10f", x[1], x[2]), con)
+  })
+
+  writeLines("END", con)
+  writeLines("END", con)
+}
+```
+
+
+# Meat
+Load JIS shapefile
+```{r}
+
+# read + transform
+zones <- st_read(in_shp, quiet = TRUE) %>% 
+  st_transform(2450) %>% 
+  filter(!is.na(N03_007), N03_007 != "") %>% 
+  group_by(id = N03_007) %>% 
+  summarise(geometry = st_union(geometry), .groups = "drop")
+
+st_write(zones, out_shp, delete_dsn = TRUE)
+
+# # clip: keep only fully within envelope
+# env <- st_read(env_shp, quiet = TRUE)
+# 
+# zones_75 <- zones |>
+#   st_filter(env, .predicate = st_within)
+# 
+# st_write(zones_75, clip_out, delete_dsn = TRUE)
+```
+
+
+Create and write envelopes in shp and poly formats
+```{r}
+gunma_shp <- zones %>%  filter(str_starts(id, "10")) %>% summarise()
+
+env00 <- gunma_shp %>% st_bbox() %>% st_as_sfc()
+
+env75 <- st_buffer(gunma_shp, dist = 75000)  %>% st_bbox() %>% st_as_sfc()
+
+
+# write sf
+write_sf(env00, out_env_00_shp)
+write_sf(env75, out_env_75_shp)
+
+
+# write poly
+write_poly(env00 %>% st_transform(4326), out_env_00_poly)
+
+write_poly(env75 %>% st_transform(4326), out_env_75_poly)
+
+
+```
+
+
+Write jis zones within 75km boundary
+```{r}
+zones %>% st_filter(env75,.predicate = sf::st_within) %>% st_write(out_75_shp)
+```
+
+
+

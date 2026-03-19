@@ -1,0 +1,105 @@
+---
+title: "process census"
+output: html_document
+date: "2026-02-04"
+---
+
+
+NOTE: we need to filter out all zones that end in 00, because they represent aggregations.
+
+
+
+Read libraries
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(readxl)
+library(matsim)
+```
+
+
+# Population Attributes
+## Ref Files for Population Dashboard
+```{r}
+people_codes <- paste0("T00108", c(seq(2002,2016),2020))
+men_codes <- paste0("T00108", c(seq(2022,2036),2040))
+women_codes <- paste0("T00108", c(seq(2042,2056),2060))
+
+labelz <-  c("0-4","5-9",
+             "10-14","15-19",
+             "20-24","25-29",
+             "30-34","35-39",
+             "40-44","45-49",
+             "50-54","55-59",
+             "60-64","65-69",
+             "70-74","75+"
+             )
+
+
+
+
+census_data_age <- read_csv("../shared-svn/projects/matsim-gunma/data/raw/2020census/tblT001082C10.txt",locale = locale(encoding = "CP932")) %>%  slice(-1) %>% filter(HYOSYO == 1)
+
+census_data_age %>% 
+  select(people_codes) %>% 
+  rename(!!!setNames(people_codes,labelz)) %>%
+  pivot_longer(everything(),names_to = "Age", values_to = "n") %>%   
+  group_by(Age) %>% 
+  summarise(n = sum(as.numeric(n))) %>% 
+  write_csv("resources/population_age_all_ref.csv")
+
+# men
+census_data_age %>% 
+  select(men_codes) %>%
+  rename(!!!setNames(men_codes,labelz)) %>%
+  pivot_longer(everything(),names_to = "Age", values_to = "n") %>%   
+  group_by(Age) %>% 
+  summarise(n = sum(as.numeric(n))) %>%  
+  write_csv("resources/population_age_men_ref.csv")
+
+women <- census_data_age %>%
+  select(women_codes) %>% 
+  rename(!!!setNames(women_codes,labelz)) %>%
+  pivot_longer(everything(),names_to = "Age", values_to = "n") %>%
+  group_by(Age) %>% 
+  summarise(n = sum(as.numeric(n))) %>%  
+  write_csv("resources/population_age_women_ref.csv")
+
+
+
+# % over 65
+
+census_data_age %>% 
+  select(people_codes) %>% 
+  rename(!!!setNames(people_codes,labelz)) %>%
+  pivot_longer(everything(),names_to = "Age", values_to = "n") %>%   
+  group_by(Age) %>% 
+  summarise(n = sum(as.numeric(n))) %>% mutate(share = n/sum(n))
+
+```
+
+
+## Validation of static popuation:
+
+```{r}
+
+# ground truth - census data
+read_csv("../shared-svn/projects/matsim-gunma/data/raw/2020census/tblT001081C10.txt",locale = locale(encoding = "CP932")) %>%  slice(-1) %>% filter(HYOSYO == 1) %>% rename(pop = T001081001, men = T001081002, women = T001081003, households = T001081004) %>% summarise(pop = sum(as.numeric(pop)), men = sum(as.numeric(men)), women = sum(as.numeric(women)), households = sum(as.numeric(households)))
+
+# output population
+output_persons <- matsim::read_output_persons("output/eval.output_persons.csv.gz")
+
+
+# count: 
+# expected = 1937626/4 = 484406.5
+# actual = 484016
+# we're good
+output_persons %>% nrow()
+
+# gender ratio:
+# expected men have 49%
+# actual men have 50%
+output_persons %>% group_by(sex) %>% count()
+
+```

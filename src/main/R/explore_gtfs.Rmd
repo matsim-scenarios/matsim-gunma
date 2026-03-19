@@ -1,0 +1,93 @@
+---
+title: "explore_gtfs"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(tidytransit)
+library(tmap)
+library(sf)
+```
+Mobility Feed
+```{r}
+mbd_url = "https://files.mobilitydatabase.org/feeds_v2.csv"
+mobility_data_csv = read.csv(mbd_url)
+gunma_urls = mobility_data_csv %>% 
+  filter(data_type == "gtfs") %>%
+  filter(location.subdivision_name=="Gunma Prefecture") 
+
+
+
+
+```
+
+```{r}
+gtfs_list <- 
+  gunma_urls |>
+  map(\(u) read_gtfs(u) |> gtfs_as_sf())
+```
+
+```{r}
+gtfs_01 <- read_gtfs("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/gtfs/AllLines-20251206.zip") %>% gtfs_as_sf() 
+
+gtfs_02 <- read_gtfs("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/gtfs/feed_annakacity_annakashi-rosenbus_20250401_20250401145755.zip") %>% gtfs_as_sf() 
+
+gtfs_03 <- read_gtfs("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/gtfs/feed_nagai-unyu_Nagaibus_20251001_20250926062303.zip") %>% gtfs_as_sf() 
+
+gtfs_04 <- read_gtfs("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/gtfs/feed_nagai-unyu_tamarin_20240401_20240810180143.zip") %>% gtfs_as_sf() 
+
+gtfs_05 <- read_gtfs("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/gtfs/feed_oizumitown_kouikikoukyoubasuaozora_20250401_20250218093403.zip") %>% gtfs_as_sf() 
+
+gtfs_06 <- read_gtfs("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/gtfs/GTFS-JP_nagaibus-gunma-jp.zip") %>% gtfs_as_sf() 
+
+gtfs_07 <- read_gtfs("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/gtfs/feed_kusakarukotsu_kusakarubus_20260221_20260225084619.zip") %>% gtfs_as_sf() 
+
+gtfs_08 <- read_gtfs("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/gtfs/Kanetsu Kotsu Bus-20260401/AllLines-20260401.zip") %>% gtfs_as_sf() 
+
+gtfs_09 <- read_gtfs("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/gtfs/Gunma Chuo Bus Co., Ltd.-20250401/AllLines-20250401.zip") %>% gtfs_as_sf() 
+
+
+
+stops_all <- list(
+  gtfs_01$stops |> transmute(feed="01"),
+  gtfs_02$stops |> transmute(feed="02"),
+  gtfs_03$stops |> transmute(feed="03"),
+  gtfs_04$stops |> transmute(feed="04"),
+  gtfs_05$stops |> transmute(feed="05"),
+  gtfs_06$stops |> transmute(feed="06"),
+  gtfs_07$stops |> transmute(feed="07"),
+  gtfs_08$stops |> transmute(feed="08"),
+  gtfs_09$stops |> transmute(feed="09")
+) |>
+  lapply(st_transform, 4326) |>
+  bind_rows()
+
+tmap_mode("view")
+tm_shape(stops_all) +
+  tm_dots(fill="feed")
+
+
+
+```
+
+```{r}
+
+gunma_bus <- read_gtfs("https://api-public.odpt.org/api/v4/files/odpt/GunmaBus/AllLines.zip?date=20251206")
+
+summary(gunma_bus)
+
+head(gunma_bus$stops)
+
+names(gunma_bus)
+
+validation_result <- attr(gunma_bus, "validation_result")
+head(validation_result)
+
+plot(gunma_bus)
+
+gunma_bus_sf <- gunma_bus %>% gtfs_as_sf() 
+tmap_mode("view")
+tm_shape(gunma_bus_sf$stops) + tm_dots()
+```
+

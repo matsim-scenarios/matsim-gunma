@@ -1,0 +1,39 @@
+---
+title: "analyse_exploratory"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(tmap)
+library(sf)
+```
+
+```{r}
+pop_raw <- read_delim("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.4/2026-03-04/004/004.output_persons.csv.gz")
+
+
+pop_cleaned <- pop_raw %>% filter(!str_starts(person,"commuter")) %>% mutate(elderly = age >=65)
+
+
+trips_raw <- read_delim("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.4/2026-03-04/004/004.output_trips.csv.gz")
+
+trips_cleaned <- trips_raw %>% filter(!str_starts(person,"commuter")) 
+```
+
+```{r}
+pop_cleaned %>%  group_by(elderly) %>% summarise(executed_score = mean(executed_score)) %>% ggplot() + geom_col(aes(elderly, executed_score))
+
+pop_cleaned %>% 
+  left_join(trips_cleaned%>% group_by(person) %>% 
+  summarise(trip_cnt = n())) %>% 
+  mutate(trip_cnt = replace_na(trip_cnt,0)) %>% 
+  group_by(elderly) %>% 
+  summarise(trip_cnt = mean(trip_cnt)) %>% 
+  ggplot() + geom_col(aes(elderly, trip_cnt))
+
+
+trips_cleaned %>% left_join(pop_cleaned, by = "person") %>% select(main_mode,elderly) %>% 
+  mutate(car = main_mode == "car", walk = main_mode == "walk", ride = main_mode == "ride", bike = main_mode == "bike") %>% group_by(elderly) %>% summarise(car = sum(car)/n(), ride = sum(ride)/n(), walk = sum(walk)/n(), bike = sum(bike)/n()) %>% pivot_longer(cols = -elderly, names_to = "mode", values_to = "share") %>% ggplot() + geom_col(aes(elderly, share, fill = mode))
+```
+

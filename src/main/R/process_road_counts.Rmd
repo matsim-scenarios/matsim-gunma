@@ -1,0 +1,831 @@
+---
+title: "process_traffic_counts"
+output: html_document
+date: "2026-02-11"
+---
+
+# Frontmatter
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Libraries
+```{r}
+library(tidyverse)
+library(sf)
+library(purrr)
+library(stringr)
+library(tmap)
+library(units)
+```
+
+## Functions
+```{r}
+
+match_traffic_to_osm <- function(
+  traffic_sf,
+  osm_sf,
+  traffic_id_col = "shortNo",
+  osm_id_col     = "osm_id",
+  buffer_dist    = 10,          # meters
+  min_overlap_m  = 20,           # minimum overlap length
+  max_angle_diff = 45, 
+  return_sf      = FALSE        # return geometries or plain table
+) {
+  
+  
+  # -----------------------------
+  # 1. Check CRS
+  # -----------------------------
+  if (st_crs(traffic_sf) != st_crs(osm_sf)) {
+    stop("CRS of traffic_sf and osm_sf must be identical.")
+  }
+  
+  if (is.na(st_crs(traffic_sf)$units_gdal) ||
+      st_crs(traffic_sf)$units_gdal != "metre") {
+    stop("CRS must be projected in meters (e.g. EPSG:2450).")
+  }
+  
+  
+  # -----------------------------
+  # 2. Add bearings
+  # -----------------------------
+  traffic_sf$traffic_bearing_deg <- sapply(st_geometry(traffic_sf), compute_bearing)
+  osm_sf$osm_bearing_deg         <- sapply(st_geometry(osm_sf), compute_bearing)
+  
+  
+  # -----------------------------
+  # 2. Buffer traffic lines
+  # -----------------------------
+  traffic_buf <- st_buffer(traffic_sf, buffer_dist)
+  
+  # Keep only ID + geometry to speed up intersection
+  traffic_buf <- traffic_buf %>%
+    select(!!traffic_id_col,traffic_bearing_deg)
+  
+  osm_small <- osm_sf %>% mutate(osm_length =  as.numeric(st_length(.))) %>% 
+    select(!!osm_id_col,osm_length,osm_bearing_deg)
+  
+  
+  
+  # -----------------------------
+  # 3. Compute intersections
+  # -----------------------------
+  # resulting geometry contains part of MATSim link that is within buffer of MLIT link
+  overlaps <- st_intersection(
+    traffic_buf,
+    osm_small
+  )
+  
+  if (nrow(overlaps) == 0) {
+    warning("No overlaps found.")
+    return(NULL)
+  }
+  
+
+  # -----------------------------
+  # 4. Calculate overlap length
+  # -----------------------------
+  overlaps$overlap_length_m <- as.numeric(st_length(overlaps))
+  
+  # overlaps <- overlaps %>%
+  #   filter(overlap_length_m >= min_overlap_m)
+  
+  if (nrow(overlaps) == 0) {
+    warning("No overlaps above min_overlap_m.")
+    return(NULL)
+  }
+  
+  
+  
+# overlaps %>%
+#   st_collection_extract("LINESTRING") %>%
+#   st_cast("LINESTRING") %>%     st_line_sample(n = 10)
+
+
+
+  traffic_part <- st_intersection(
+    traffic_sf,
+    st_buffer(osm_sf, buffer_dist)
+  )
+
+  overlaps$mean_dist_m <- mapply(
+    mean_line_distance,
+    st_geometry(traffic_part),
+    st_geometry(osm_sf[match(overlaps[[osm_id_col]], osm_sf[[osm_id_col]]), ])
+  )
+  # -----------------------------
+  # 5. Compute length shares
+  # -----------------------------
+  overlaps <- overlaps %>%
+    group_by(.data[[traffic_id_col]]) %>%
+    mutate(
+      overlap_share = overlap_length_m / sum(overlap_length_m)
+    ) %>%
+    ungroup()
+  
+    # -----------------------------
+  # 6. Direction comparison
+  # -----------------------------
+  overlaps <- overlaps %>%
+    mutate(
+      angle_diff_deg = abs(traffic_bearing_deg - osm_bearing_deg),
+      angle_diff_deg = ifelse(angle_diff_deg > 180,
+                              360 - angle_diff_deg,
+                              angle_diff_deg),
+      direction_relation = case_when(
+        angle_diff_deg <= max_angle_diff ~ "same",
+        abs(angle_diff_deg - 180) <= max_angle_diff ~ "opposite",
+        TRUE ~ "other"
+    )
+    )
+  
+  
+  # -----------------------------
+  # 5.5. Share of OSM Link that is in Buffer
+  # -----------------------------
+  overlaps <- overlaps %>% mutate(share_of_osm_link_in_buffer = overlap_length_m/osm_length)
+  
+  # -----------------------------
+  # 6. Return result
+  # -----------------------------
+  if (!return_sf) {
+    overlaps <- overlaps %>%
+      st_drop_geometry()
+  }
+  
+  return(overlaps)
+}
+
+
+compute_bearing <- function(geom) {
+  coords <- st_coordinates(geom)
+  
+  start <- coords[1, 1:2]
+  end   <- coords[nrow(coords), 1:2]
+  
+  dx <- end[1] - start[1]
+  dy <- end[2] - start[2]
+  
+  angle <- atan2(dx, dy) * 180 / pi
+  if (angle < 0) angle <- angle + 360
+  
+  return(angle)
+}
+
+
+
+mean_line_distance <- function(line_a, line_b, step = 5) {
+
+  clean <- function(g) {
+    g <- st_collection_extract(g, "LINESTRING") %>% st_cast("LINESTRING")
+    if (length(g) == 0) return(NULL)
+    st_union(g)
+  }
+
+  line_a <- clean(line_a)
+  line_b <- clean(line_b)
+
+  if (is.null(line_a) || is.null(line_b)) return(NA_real_)
+
+  dense <- st_segmentize(line_a, dfMaxLength = step)
+  pts <- st_cast(dense, "POINT")
+
+  d <- as.numeric(st_distance(pts, line_b))
+  mean(d)
+}
+```
+
+# ---- Find files ----
+```{r}
+
+input_dir <- "/Users/jakob/scrape_mlit2/clean"
+target_crs <- 2450
+
+files <- list.files(
+  input_dir,
+  pattern = "\\.geojson$",
+  full.names = TRUE
+)
+
+if (length(files) == 0) {
+  stop("No GeoJSON files found.")
+}
+
+cat("Found", length(files), "files\n")
+```
+
+# ---- Read + merge safely ----
+
+```{r}
+gdfs <- map(files, function(f) {
+  tryCatch({
+    # cat("Reading", basename(f), "\n")
+
+    gdf <- st_read(f, quiet = TRUE) %>% st_transform(target_crs)
+
+    # Extract numeric ID from filename (0003.geojson -> 3)
+    file_id <- str_extract(basename(f), "\\d+") |> as.integer()
+
+    gdf$file_id <- file_id
+
+    gdf
+  }, error = function(e) {
+    message("Skipping ", basename(f), ": ", e$message)
+    NULL
+  })
+})
+
+# Remove failed reads
+gdfs <- compact(gdfs)
+
+if (length(gdfs) == 0) {
+  stop("No valid GeoJSON files could be read.")
+}
+
+
+```
+# ---- Merge ----
+
+```{r}
+
+merged <- bind_rows(gdfs)
+
+cat("Merged", nrow(merged), "features\n")
+```
+
+# Read Kasyo file, to create a key between shortNo and longNo
+
+Key: Basic Traffic Survey Section Number -> Survey Unit Section Number
+Left is used by geojson. Right is used in the hourly traffic volume spreadsheet. 
+```{r}
+roads_counts_kasyo <- read_csv("../shared-svn/projects/matsim-gunma/data/raw/road_counts/mlit/kasyo10.csv", locale = locale(encoding = "CP932")) 
+
+roads_counts_kasyo_key <- roads_counts_kasyo %>% select(longNo = "交通調査基本区間番号...1", shortNo = "交通量／調査単位区間番号", longNoOfStationUpbound = "上り／観測地点交通調査基本区間番号", longNoOfStationDownbound = "下り／観測地点交通調査基本区間番号", longNoOfConnectingRoadStart = "起点側／交通調査基本区間番号", longNoOfConnectingRoadEnd = "終点側／交通調査基本区間番号" )
+
+
+# upward station and downward station are always the same :)
+roads_counts_kasyo_key %>% filter(longNoOfStationUpbound!=longNoOfStationDownbound)
+
+
+# only looking the actual counting facilities, we only have 857 measuring stations (instead of 2107). However, we will have upward and downward eventually. 4 of these stations are not acutally in our file. So they disappear in the next step.
+roads_counts_kasyo_key$longNoOfStationUpbound %>% unique() %>% length()
+
+
+# there are 853 unique shortNo - longNo combos
+roads_counts_kasyo_key_condensed <- roads_counts_kasyo_key %>% filter(longNo == longNoOfStationUpbound)
+roads_counts_kasyo_key_condensed %>% pull(longNo) %>% unique() %>% length()
+roads_counts_kasyo_key_condensed %>% pull(shortNo) %>% unique() %>% length()
+
+
+```
+
+SHAPE FILE 
+```{r}
+
+tmap_mode("view")
+
+tm_shape(merged)+tm_lines()
+
+# st_write(merged, output_gpkg, delete_dsn = TRUE)
+# st_write(merged, output_geojson, delete_dsn = TRUE)
+
+cat("Done.\n")
+
+
+
+road_counts_shp <- merged %>% 
+  separate_wider_position(census,widths = c("Prefecture" = 2,"Unknown1" = 1,"Route" = 5,"Unkown2" = 3),cols_remove = FALSE) %>%
+  filter(Prefecture == "10") %>% 
+  mutate(longNo = as.numeric(census))%>% 
+  inner_join(roads_counts_kasyo_key_condensed, by = c("longNo")) %>% st_as_sf() %>% group_by(shortNo) %>% summarise()
+
+
+tm_shape(road_counts_shp) +
+  tm_lines(col = "shortNo")
+
+```
+
+
+```{r}
+road_counts <- read_csv("../shared-svn/projects/matsim-gunma/data/raw/road_counts/mlit/zkntrf10.csv", locale = locale(encoding = "CP932"))
+
+col_dict <- c(
+  "都道府県指定市コード" = "prefecture_code",
+  "交通量調査単位区間番号" = "traffic_section_id",
+  "道路種別" = "road_type",
+  "路線番号" = "route_number",
+  "令和３年度調査交通量観測・非観測の別" = "observed_flag",
+  "個別調査観測値活用の別" = "individual_observation_flag",
+  "１２・２４時間観測の別" = "survey_duration_type",
+  "交通量観測年月日" = "survey_date",
+  "天候" = "weather",
+  "上り・下りの別" = "direction",
+  "車種区分" = "vehicle_type",
+  "昼間１２時間自動車類交通量（台）" = "traffic_12h_total",
+  "２４時間自動車類交通量（台）" = "traffic_24h_total"
+)
+
+# Full-width Japanese digits → normal digits
+jp_hours <- c("０","１","２","３","４","５","６","７","８","９",
+              "１０","１１","１２","１３","１４","１５",
+              "１６","１７","１８","１９","２０","２１","２２","２３")
+
+for (h in 0:23) {
+  jp_h <- jp_hours[h + 1]
+  old_name <- paste0("時間帯別自動車類交通量（台／時）／", jp_h, "時台")
+  new_name <- paste0("traffic_", sprintf("%02d", h), "h")
+  col_dict[old_name] <- new_name
+}
+
+names(road_counts) <- col_dict[names(road_counts)]
+
+
+
+
+# col_dict %>% view()
+
+
+```
+### Analyse Ratio Heavy vs. Light traffic:
+
+```{r}
+road_counts %>% 
+  select(traffic_section_id,direction,vehicle_type,traffic_12h_total) %>%
+  filter(!is.na(traffic_12h_total)) %>%
+  pivot_wider(names_from = vehicle_type, values_from = traffic_12h_total) %>% 
+  summarise(light_vehicle_share = sum(`1`)/sum(`1` + `2`))
+```
+
+
+We now take average of upbound/downbound
+1: Upbound
+2: Downbound
+
+NOTE: some links are only upbound/downbound.
+We only examine small vehicles 
+1: Small vehicle
+2: Large vehicle
+```{r}
+# road_counts %>% view()
+
+# ONLY FOR SMALL VEHICLES AND IN ONE DIRECTION!
+road_counts_merged <- road_counts %>%
+  mutate(shortNo = traffic_section_id) %>%
+  filter( vehicle_type == 1) %>% select(shortNo, starts_with("traffic"), -traffic_section_id) %>%
+  group_by(shortNo) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE), dirs = n()) %>% 
+  inner_join(road_counts_shp, by = "shortNo") %>% st_as_sf()
+
+tm_shape(road_counts_merged) + 
+  tm_lines(col = "traffic_12h_total", palette = "viridis")
+```
+
+Which roads did not get a shape file?
+33 reads. I've checked a few of them, and they seem at the outskirts. So I just gotta do it again.
+```{r}
+
+road_counts_merged |>
+  filter(sf::st_is_empty(geometry))
+
+
+# road_counts_merged %>% filter(g)
+```
+
+
+# Read & Process MATSim Network
+Read and convert MATSim geometries
+
+ [1] "highway.unclassified"   "highway.residential"    "highway.tertiary"       "highway.cycleway"      
+ [5] "highway.secondary"      "highway.trunk"          "highway.primary"        "highway.motorway_link" 
+ [9] "highway.trunk_link"     "highway.path"           "highway.secondary_link" "highway.primary_link"  
+[13] "highway.service"        "highway.motorway"    
+```{r}
+
+
+# Read the CSV
+matsim_network_geos_raw <- read.csv("input/v1.4/gunma-v1.4-network-linkGeometries.csv", stringsAsFactors = FALSE)
+
+# Read MATSim Network, so as to only keep match links that are actually present in the network:
+matsim_cleaned_network <- matsim::read_network("input/v1.4/gunma-v1.4-network.xml")
+
+ids_matsim_cleaned_network <- matsim_cleaned_network$links %>% 
+  filter(!type %in% c("highway.path","highway.cycleway","highway.residential")) %>%  pull(id)
+
+# filter geometries to only include those
+
+matsim_network_geos <- matsim_network_geos_raw %>% filter(LinkId %in% ids_matsim_cleaned_network)
+
+# Function to convert the Geometry column into a MULTILINESTRING
+parse_multilinestring <- function(geom_str) {
+  # Split by "),(" to separate points
+  coords <- str_extract_all(geom_str, "\\(([^)]+)\\)")[[1]]
+  
+  # Convert each "(x,y)" into numeric vector
+  coords_list <- lapply(coords, function(x) {
+    nums <- str_remove_all(x, "[()]") %>% str_split(",") %>% unlist()
+    as.numeric(nums)
+  })
+  
+  # In this file, each row seems to be a single line (so just wrap as one line)
+  st_multilinestring(list(do.call(rbind, coords_list)))
+}
+
+# Apply to each row
+matsim_network_geos_sf <- matsim_network_geos %>%
+  rowwise() %>%
+  mutate(geometry = st_sfc(parse_multilinestring(Geometry))) %>%
+  st_as_sf() %>%
+  ungroup()
+
+st_crs(matsim_network_geos_sf) <- 2450
+
+saveRDS(matsim_network_geos_sf, "../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf.rds")
+
+
+gunma <- st_read("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/zzz_deprecated/gunma_2450/gunma_2450.shp")
+matsim_network_geos_sf_filtered <- matsim_network_geos_sf %>% st_filter(gunma)
+
+saveRDS(matsim_network_geos_sf_filtered, "../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf_filtered.rds")
+
+
+matsim_network_geos_sf <- readRDS("../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf.rds")
+matsim_network_geos_sf_filtered <- readRDS("../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf_filtered.rds")
+
+
+
+# 
+
+```
+
+
+# Matching process
+```{r}
+# we are only looking at counting stations with all 24 hours: 129 stations
+road_counts_merged_filtered <- road_counts_merged %>% 
+  drop_na(traffic_24h_total) %>% 
+  st_transform(2450)
+
+# Do the actual matching process. 
+
+matsim_to_mlit_merge <-  match_traffic_to_osm(road_counts_merged_filtered,matsim_network_geos_sf_filtered, min_overlap_m = 50,  buffer_dist = 15, osm_id_col = "LinkId")
+```
+
+# Final Filtering
+For now, we will only examine 24 hour values. And we will try to find 
+
+I need to somehow specify this such that each MATSim link only shows up as a single counting station
+```{r}
+# This will link to multiple links. Now we have to choose the 
+matsim_to_mlit_merge_filtered <- matsim_to_mlit_merge %>% 
+  # group_by(shortNo, LinkId) %>% 
+  # summarise(mean_dist_m = mean(mean_dist_m), overlap_length_m = sum(overlap_length_m),) %>% 
+  filter(direction_relation !="other") %>% 
+  filter(overlap_length_m > 100) %>%
+  
+  
+  # filter(direction_relation == "same") %>% view()
+  group_by(shortNo) %>% 
+  # filter(share_of_osm_link_in_buffer ==  max(share_of_osm_link_in_buffer)) %>% 
+  filter(mean_dist_m == min(mean_dist_m)) %>%
+  slice_head() 
+  # filter(angle_diff_deg == min(angle_diff_deg))
+  # mutate(shortNo = str_replace_all(shortNo, "[A-Za-z]*",""))
+
+matsim_to_mlit_merge_filtered %>% pull(LinkId) %>% unique() %>% length()
+matsim_to_mlit_merge_filtered %>% pull(shortNo) %>% unique() %>% length()
+```
+
+plot
+```{r}
+matsim_final_filtered <- matsim_network_geos_sf_filtered %>% 
+  filter(LinkId %in% (matsim_to_mlit_merge_filtered %>% pull(LinkId) %>% unique())) %>% select(LinkId)
+
+mlit_final_filtered <- road_counts_merged %>% 
+  filter(shortNo %in% (matsim_to_mlit_merge_filtered %>%  pull(shortNo) %>% unique())) %>% select(shortNo)
+
+
+tm_shape(matsim_network_geos_sf_filtered) +
+tm_lines(col = "yellow", lwd = 0.2) +
+tm_shape(matsim_final_filtered) + 
+tm_lines(col = "red", lwd = 3) + 
+tm_shape(mlit_final_filtered) +
+tm_lines(col = "black", lty = 2 ) 
+  # tm_shape(sf::st_endpoint(mlit_final_filtered)) +
+  # tm_dots()
+```
+
+to csv
+```{r}
+ready_for_csv <- matsim_to_mlit_merge_filtered %>% 
+  select(LinkId, shortNo) %>% 
+  # mutate(LinkIdRev = case_when(str_starts(LinkId, "-") ~ str_replace(LinkId, "-",""), .default = paste0("-", LinkId))) %>%
+  # pivot_longer(c(LinkId,LinkIdRev), names_to = "cat",values_to = "LinkId") %>% select(-cat) %>% 
+  # filter(LinkId %in% ids_matsim_cleaned_network) %>% 
+  mutate(shortNo = as.numeric(shortNo)) %>% 
+  left_join(road_counts_merged_filtered %>% st_drop_geometry()) %>% 
+  pivot_longer(matches("traffic_[0-9]"),names_to = "time",values_to = "count") %>% 
+  select(LinkId,shortNo,time,count) %>% filter(!is.na(count)) %>% 
+  arrange(shortNo,LinkId,time)
+  
+# ready_for_csv %>% view()
+ready_for_csv %>% pull(LinkId) %>% unique() %>% length()
+ready_for_csv %>% pull(shortNo) %>% unique() %>% length()
+
+
+  write_csv(ready_for_csv,"../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_linkId_to_roadcounts.csv")
+
+```
+
+
+
+
+
+
+
+
+# DEPRECATED
+
+
+```{r}
+
+
+# we duplicate these, so that we have a forward and backwards direction: 258 stations
+# we give each station the mean count between the forward and backward direction from
+# the MLIT dataset. 
+# road_counts_merged_duplicated <- road_counts_merged_filtered %>% 
+#   mutate(shortNo = paste0(shortNo,"forward")) %>% 
+#   bind_rows(
+#     road_counts_merged_filtered %>%
+#       mutate(geometry = st_reverse(geometry),
+#              shortNo = paste0(shortNo,"backward")))
+
+```
+
+
+```{r}
+
+testy <- roads_counts_kasyo_key_condensed %>% 
+  inner_join(road_counts_shp) %>% st_as_sf() 
+
+
+
+get_start <- function(g) {
+  coords <- st_coordinates(g)
+  st_point(coords[1, c("X", "Y")])
+}
+
+get_end <- function(g) {
+  coords <- st_coordinates(g)
+  st_point(coords[nrow(coords), c("X", "Y")])
+}
+
+  
+
+testy$start <- st_sfc(
+  lapply(st_geometry(testy), get_start),
+  crs = st_crs(testy)
+)
+
+testy$end <- st_sfc(
+  lapply(st_geometry(testy), get_end),
+  crs = st_crs(testy)
+)
+
+testy <- testy %>% st_drop_geometry()
+
+testy <- testy %>% left_join(road_counts_shp, by = c("longNoOfStationUpbound" = "shortNo")) %>% st_as_sf()
+
+testy %>% view()
+
+testy$upbound_start <- st_sfc(
+  lapply(st_geometry(testy), get_start),
+  crs = st_crs(testy)
+)
+
+testy$upbound_end <- st_sfc(
+  lapply(st_geometry(testy), get_end),
+  crs = st_crs(testy)
+)
+
+testy <- testy %>% st_drop_geometry() 
+
+# %>% left_join(road_counts_shp, by = c("longNoOfStationDownbound" = "shortNo"))
+
+testy$downbound_start <- st_sfc(
+  lapply(st_geometry(testy), get_start),
+  crs = st_crs(testy)
+)
+
+testy$downbound_end <- st_sfc(
+  lapply(st_geometry(testy), get_end),
+  crs = st_crs(testy)
+)
+
+testy %>% view()
+```
+
+
+```{r}
+
+truncate_road_to_Xm <- function(sf_obj, length_m = 100) {
+  
+  # total length of each line
+  line_length <- as.numeric(st_length(sf_obj))
+  
+  
+  # fraction of total length corresponding to 100m
+  frac <- as.numeric(length_m / line_length)
+  
+  # start and end fractions around midpoint (0.5)
+  start_frac <- 0.5 - frac / 2
+  end_frac   <- 0.5 + frac / 2
+  
+  # clamp values to [0,1]
+  start_frac <- pmax(0, start_frac)
+  end_frac   <- pmin(1, end_frac)
+  
+  sf_obj$geometry <- st_line_substring(
+    sf_obj$geometry,
+    from = start_frac,
+    to   = end_frac
+  )
+  
+  return(sf_obj)
+}
+```
+
+And now the money question: can I map these to OSM easily? 
+
+```{r}
+
+# osm_shp <- read_sf("../shared-svn/projects/matsim-gunma/data/processed/gunma.osm.pbf")
+# 
+# osm_shp %>%  filter(st_geometry_type(geometry) == "LINESTRING")
+# library(osmdata)
+
+# gunma_shp <- st_read("../shared-svn/projects/matsim-gunma/data/raw/shp/gunma_municip_2020/N03-20200101_10_GML/N03-20_10_200101.shp")
+
+
+osm_lines <- st_read("../shared-svn/projects/matsim-gunma/data/processed/gunma.osm.pbf", layer = "lines")
+# osm_multilinestrings <- st_read("../shared-svn/projects/matsim-gunma/data/processed/gunma.osm.pbf", layer = "multilinestrings")
+
+osm_lines_filtered <- osm_lines %>%  filter(highway %in% c("motorway","trunk","primary","secondary","tertiary","service","unclassified","track")) #tertiary
+
+# osm_lines %>% filter(!is.na(highway)) %>% tm_shape(osm_lines) + tm_lines()
+
+tm_shape(osm_lines_filtered) + 
+  tm_lines(col = "red") + 
+  tm_shape(road_counts_merged) + 
+  tm_lines(col = "black", lty = 3, lwd = 2)
+ 
+
+
+```
+
+
+
+```{r}
+
+# lichen_matsim_network <- matsim::read_network("../shared-svn/projects/matsim-gunma/data/raw/matsim_inputs_lichen_luo/NetworkRed191211fromJOSM_noHighway_cle_speed0.66Adjusted.xml")
+# 
+# lichen_matsim_network_sf <- lichen_matsim_network$links  %>%
+#   mutate(
+#     geometry = pmap(
+#       list(x.from, y.from, x.to, y.to),
+#       ~ st_linestring(matrix(c(..1, ..2,
+#                                ..3, ..4),
+#                              ncol = 2,
+#                              byrow = TRUE))
+#     )
+#   ) %>%
+#   st_as_sf(crs = 2450)
+
+
+osm_to_mlit_merge <-  match_traffic_to_osm(road_counts_merged %>% st_transform(2450),osm_lines_filtered %>% st_transform(2450), min_overlap_m = 50,  buffer_dist    = 15) 
+
+osm_to_mlit_merge_filtered <- osm_to_mlit_merge %>% group_by(shortNo) %>% filter(overlap_share == max(overlap_share))
+
+
+# yyyy2 <- yyyy %>% filter(share_of_osm_link_in_buffer > 0.2)
+# tm_shape(osm_lines_filtered %>% select(osm_id,highway)) + 
+  # tm_lines(col = "green") + 
+# tm_shape(lichen_matsim_network_sf) +
+# tm_lines(col = "green") +
+tm_shape(osm_lines_filtered %>% filter(osm_id %in% (osm_to_mlit_merge_filtered %>% pull(osm_id) %>% unique())) %>% select(osm_id)) + 
+  tm_lines(col = "red") + 
+  tm_shape(road_counts_merged %>% filter(shortNo %in% (osm_to_mlit_merge_filtered %>% pull(shortNo) %>% unique())) %>% select(shortNo)) + 
+  tm_lines(col = "black", lty = 3 )
+
+
+tm_shape(osm_lines %>% filter(!is.na(highway) & highway != "footway") %>% select(osm_id, highway)) +
+  tm_lines(col = "green") +
+# tm_shape(osm_lines_filtered %>% filter(osm_id %in% (!yyyy %>% pull(osm_id) %>% unique())) %>% select(osm_id)) + 
+#   tm_lines(col = "red") + 
+  tm_shape(road_counts_merged %>% filter(!shortNo %in% (yyyy %>% pull(shortNo) %>% unique())) %>% select(shortNo)) + 
+  tm_lines(col = "black", lwd = 5)
+```
+
+
+```{r}
+xxxx <- match_lines_by_overlap(road_counts_merged %>% st_transform(2450),osm_lines_filtered %>% st_transform(2450))
+
+tm_shape(osm_lines_filtered %>% filter(osm_id %in% (xxxx %>% pull(".osm_id") %>% unique()))) + 
+  tm_lines(col = "red") + 
+  tm_shape(road_counts_merged %>% filter(shortNo %in% (xxxx %>% pull(".traffic_id") %>% unique()))) + 
+  tm_lines(col = "black", lty = 3 )
+
+tm_shape(osm_lines_filtered) + 
+  tm_lines(col = "red") + 
+  tm_shape(road_counts_merged %>% filter(! shortNo %in% (xxxx %>% pull(".traffic_id") %>% unique()))) + 
+  tm_lines(col = "black", lty = 3, lwd = 2)
+```
+
+
+
+```{r}
+match_lines_by_overlap <- function(
+  traffic,
+  osm,
+  buffer = 15,              # meters
+  min_overlap_ratio = 0.3,  # require at least this fraction of traffic segment overlapping
+  max_distance = NULL       # optional distance filter in meters
+) {
+  
+  # --- Ensure projected CRS ---
+  if (st_is_longlat(traffic)) {
+    stop("Traffic data must be in projected CRS (meters).")
+  }
+  if (st_is_longlat(osm)) {
+    stop("OSM data must be in projected CRS (meters).")
+  }
+  
+  # --- Add IDs ---
+  traffic <- traffic %>%
+    mutate(.traffic_id = shortNo)
+  
+  osm <- osm %>%
+    mutate(.osm_id = osm_id)
+  
+  # --- Optional distance pre-filter (speeds things up) ---
+  if (!is.null(max_distance)) {
+    idx <- st_is_within_distance(traffic, osm, dist = max_distance)
+    candidate_pairs <- tibble(
+      .traffic_id = rep(seq_len(nrow(traffic)), lengths(idx)),
+      .osm_id = unlist(idx)
+    )
+    
+    traffic <- traffic %>% filter(.traffic_id %in% candidate_pairs$.traffic_id)
+    osm <- osm %>% filter(.osm_id %in% candidate_pairs$.osm_id)
+  }
+  
+  # --- Buffer OSM ---
+  osm_buffered <- st_buffer(osm, dist = buffer)
+  
+  # --- Intersect ---
+  intersections <- st_intersection(
+    traffic,
+    osm_buffered
+  )
+  
+  if (nrow(intersections) == 0) {
+    warning("No overlaps found.")
+    return(NULL)
+  }
+  
+  # --- Compute overlap length ---
+  intersections <- intersections %>%
+    mutate(
+      overlap_length = as.numeric(st_length(geometry))
+    )
+  
+  # --- Add original traffic length ---
+  traffic_lengths <- traffic %>%
+    mutate(traffic_length = as.numeric(st_length(geometry))) %>%
+    st_drop_geometry()
+  
+  intersections <- intersections %>%
+    left_join(traffic_lengths, by = ".traffic_id") %>%
+    mutate(
+      overlap_ratio = overlap_length / traffic_length
+    )
+  
+  # --- Select best match per traffic segment ---
+  best_matches <- intersections %>%
+    group_by(.traffic_id) %>%
+    slice_max(overlap_length, n = 1, with_ties = FALSE) %>%
+    ungroup()
+  
+  # --- Apply overlap threshold ---
+  best_matches <- best_matches %>%
+    filter(overlap_ratio >= min_overlap_ratio)
+  
+  # --- Return clean lookup ---
+  lookup <- best_matches %>%
+    st_drop_geometry() %>%
+    select(.traffic_id, .osm_id, overlap_length, overlap_ratio)
+  
+  return(lookup)
+}
+```
