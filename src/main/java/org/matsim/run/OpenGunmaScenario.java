@@ -4,9 +4,7 @@ package org.matsim.run;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.Scenario;
 import org.matsim.api.core.v01.TransportMode;
-import org.matsim.api.core.v01.population.Activity;
-import org.matsim.api.core.v01.population.Leg;
-import org.matsim.api.core.v01.population.Person;
+import org.matsim.api.core.v01.population.*;
 import org.matsim.application.MATSimApplication;
 import org.matsim.application.options.SampleOptions;
 import org.matsim.contrib.vsp.scenario.SnzActivities;
@@ -17,6 +15,7 @@ import org.matsim.core.config.groups.VspExperimentalConfigGroup;
 import org.matsim.core.controler.AbstractModule;
 import org.matsim.core.controler.Controler;
 import org.matsim.core.population.PersonUtils;
+import org.matsim.core.population.PopulationUtils;
 import org.matsim.core.replanning.strategies.DefaultPlanStrategiesModule;
 
 import org.matsim.core.router.TripStructureUtils;
@@ -25,8 +24,8 @@ import picocli.CommandLine;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 
 @CommandLine.Command(header = ":: Open Gunma Scenario ::", version = OpenGunmaScenario.VERSION, mixinStandardHelpOptions = true, showDefaultValues = true)
@@ -57,6 +56,38 @@ public class OpenGunmaScenario extends MATSimApplication {
 	public static void main(String[] args) {
 		MATSimApplication.run(OpenGunmaScenario.class, args);
 	}
+
+	/**
+	 * replace trips with certain mode with empty trip of different mode.
+	 */
+	public static void replaceModeLegsWithOtherMode(Plan plan, Set<String> modes, String replacementMode) {
+
+		final List<PlanElement> planElements = plan.getPlanElements();
+		plan.setScore(null);
+
+		// Remove all pt trips
+		for (TripStructureUtils.Trip trip : TripStructureUtils.getTrips(plan)) {
+
+			// Check if any of the modes is in the trip
+			Optional<Leg> cleanLeg = trip.getLegsOnly().stream().filter(l -> modes.contains(l.getMode())).findFirst();
+
+			if (cleanLeg.isEmpty())
+				continue;
+
+			// Replaces all trip elements and inserts single leg
+			final List<PlanElement> fullTrip =
+				planElements.subList(
+					planElements.indexOf(trip.getOriginActivity()) + 1,
+					planElements.indexOf(trip.getDestinationActivity()));
+
+			fullTrip.clear();
+
+			Leg leg = PopulationUtils.createLeg(replacementMode);
+			TripStructureUtils.setRoutingMode(leg, replacementMode);
+			fullTrip.add(leg);
+		}
+	}
+
 
 
 	public static void removePtFromScenario(Scenario scenario) {
@@ -101,6 +132,8 @@ public class OpenGunmaScenario extends MATSimApplication {
 		config.plans().setInputFile(sample.adjustName(config.plans().getInputFile()));
 		config.facilities().setInputFile(sample.adjustName(config.facilities().getInputFile()));
 	}
+
+
 
 
 	@Override
@@ -189,15 +222,21 @@ public class OpenGunmaScenario extends MATSimApplication {
 						}
 
 						PersonUtils.removeUnselectedPlans(person);
-
-						Set<Leg> legsToRemove = TripStructureUtils.getLegs(person.getSelectedPlan()).stream().filter(leg -> leg.getMode().equals(TransportMode.car)).collect(Collectors.toSet());
-						Set<Activity> activitiesToRemove = TripStructureUtils.getActivities(person.getSelectedPlan(), TripStructureUtils.StageActivityHandling.StagesAsNormalActivities).stream().filter(activity -> activity.getType().equals("car interaction")).collect(Collectors.toSet());
-						person.getSelectedPlan().getPlanElements().removeAll(legsToRemove);
-						person.getSelectedPlan().getPlanElements().removeAll(activitiesToRemove);
+						replaceModeLegsWithOtherMode(person.getSelectedPlan(), Set.of(TransportMode.car), TransportMode.walk);
+//
+////						TripStructureUtils.
+//						for(person.getSelectedPlan().getPlanElements())
+//
+//						Set<Leg> legsToRemove = TripStructureUtils.getLegs(person.getSelectedPlan()).stream().filter(leg -> leg.getRoutingMode().equals(TransportMode.car)).collect(Collectors.toSet());
+//						Set<Activity> activitiesToRemove = TripStructureUtils.getActivities(person.getSelectedPlan(), TripStructureUtils.StageActivityHandling.StagesAsNormalActivities).stream().filter(activity -> activity.getType().equals("car interaction")).collect(Collectors.toSet());
+//						person.getSelectedPlan().getPlanElements().removeAll(legsToRemove);
+//						person.getSelectedPlan().getPlanElements().removeAll(activitiesToRemove);
 
 					}
 				}
 			}
+
+			new PopulationWriter(scenario.getPopulation()).write("jkashfdkl.xml.gz");
 		}
 
 		for (Person person : scenario.getPopulation().getPersons().values()) {
@@ -236,6 +275,7 @@ public class OpenGunmaScenario extends MATSimApplication {
 //		}
 //		controler.addOverridingModule(new PersonMoneyEventsAnalysisModule());
 	}
+
 
 
 	/**
@@ -281,4 +321,5 @@ public class OpenGunmaScenario extends MATSimApplication {
 //			}
 		}
 	}
+
 }

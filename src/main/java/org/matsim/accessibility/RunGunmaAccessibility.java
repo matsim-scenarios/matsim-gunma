@@ -1,6 +1,8 @@
 package org.matsim.accessibility;
 
 import org.apache.commons.io.FileUtils;
+import org.matsim.api.core.v01.Id;
+import org.matsim.api.core.v01.population.Person;
 import org.matsim.application.ApplicationUtils;
 import org.matsim.contrib.accessibility.AccessibilityConfigGroup;
 import org.matsim.contrib.accessibility.AccessibilityFromEvents;
@@ -20,6 +22,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Runs offline accessibility analysis for Gunma Prefecture in Japan.
@@ -27,11 +31,13 @@ import java.util.List;
 public final class RunGunmaAccessibility {
 
 	static final String coordinateSystem = "EPSG:2450";
-	static final String dirToCopy = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.4/2026-03-06/calib-acc";
+	static final String dirToCopy = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-13-base/";
 
-	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.4/2026-03-06/calib-acc-b";
-	static final List<String> relevantPois = List.of("supermarket", "public_bath", "hospital", "shinkansen", "middle");
+	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-17b-base-accessibility-supermarket/";
+	//	static final List<String> relevantPois = List.of("supermarket", "public_bath", "hospital", "shinkansen", "middle");
+	static final List<String> relevantPois = List.of("supermarket", "shinkansen");
 
+	private static final boolean personBased = true;
 
 	private RunGunmaAccessibility() {
 		// prevent instantiation
@@ -44,25 +50,36 @@ public final class RunGunmaAccessibility {
 
 		String mapCenterString = "139.0266,36.5211";
 
-//		calculateAccessibility();
+		calculateAccessibility();
 
 
 		// CREATE DASHBOARD
-		createDashboard(mapCenterString);
+//		createDashboard(mapCenterString);
 	}
 
 	private static void calculateAccessibility() {
 		AccessibilityConfigGroup accConfig = new AccessibilityConfigGroup();
+
+		if (personBased) {
+
+			accConfig.setPersonBased(true);
+			accConfig.setAreaOfAccessibilityComputation(AccessibilityConfigGroup.AreaOfAccesssibilityComputation.fromPopulation);
+
+
+		} else {
+			accConfig.setAreaOfAccessibilityComputation(AccessibilityConfigGroup.AreaOfAccesssibilityComputation.fromShapeFile);
+
+			accConfig.setShapeFileCellBasedAccessibility("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp");
+			// extents of gunma from qgis -- this really shouldn't be neccessary if we use shp file...
+			accConfig.setBoundingBoxLeft(-8874.3893231801757793);
+			accConfig.setBoundingBoxBottom(104516.0981667207088321);
+			accConfig.setBoundingBoxRight(-1513.2262783532476078);
+			accConfig.setBoundingBoxTop(117287.2301061319012661);
+
+		}
+
 		accConfig.setTileSize_m(500);
 
-		accConfig.setAreaOfAccessibilityComputation(AccessibilityConfigGroup.AreaOfAccesssibilityComputation.fromShapeFile);
-		accConfig.setShapeFileCellBasedAccessibility("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp");
-
-		// extents of gunma from qgis -- this really shouldn't be neccessary if we use shp file...
-		accConfig.setBoundingBoxLeft(-8874.3893231801757793);
-		accConfig.setBoundingBoxBottom(104516.0981667207088321);
-		accConfig.setBoundingBoxRight(-1513.2262783532476078);
-		accConfig.setBoundingBoxTop(117287.2301061319012661);
 
 
 		accConfig.setTimeOfDay(8 * 3600.);
@@ -74,11 +91,14 @@ public final class RunGunmaAccessibility {
 
 		// Accessibility Calculation
 		String eventsFile = ApplicationUtils.matchInput("output_events.xml.gz", Path.of(outputDir)).toString();
+		String populationFile = ApplicationUtils.matchInput("output_plans.xml.gz", Path.of(outputDir)).toString();
 
 		String networkFile = "input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-network.xml.gz";
 
-		String poisFile = "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/pois	.xml";
+		String poisFile = "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/pois.xml";
 		final Config config = ConfigUtils.createConfig();
+
+		config.plans().setInputFile(populationFile);
 		config.controller().setLastIteration(0);
 		config.controller().setOutputDirectory(outputDir);
 		config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.overwriteExistingFiles);
@@ -92,6 +112,28 @@ public final class RunGunmaAccessibility {
 
 		MutableScenario scenario = (MutableScenario) ScenarioUtils.loadScenario(config);
 
+		//		== Bounding box from persons home coords ==
+		double minX = Double.POSITIVE_INFINITY;
+		double maxX = Double.NEGATIVE_INFINITY;
+		double minY = Double.POSITIVE_INFINITY;
+		double maxY = Double.NEGATIVE_INFINITY;
+
+		for (Person person : scenario.getPopulation().getPersons().values()) {
+			Double x = (Double) person.getAttributes().getAttribute("home_x");
+			Double y = (Double) person.getAttributes().getAttribute("home_y");
+			if (x != null && y != null) {
+				minX = Math.min(minX, x);
+				maxX = Math.max(maxX, x);
+				minY = Math.min(minY, y);
+				maxY = Math.max(maxY, y);
+			}
+		}
+		accConfig.setBoundingBoxBottom(minY).setBoundingBoxTop(maxY)
+			.setBoundingBoxLeft(minX).setBoundingBoxRight(maxX);
+
+
+		Set<Id<Person>> commutersIds = scenario.getPopulation().getPersons().keySet().stream().filter(id -> id.toString().startsWith("commuter_")).collect(Collectors.toSet());
+		commutersIds.forEach(id -> scenario.getPopulation().removePerson(id));
 
 
 		AccessibilityFromEvents.Builder builder = new AccessibilityFromEvents.Builder(scenario, eventsFile, relevantPois);

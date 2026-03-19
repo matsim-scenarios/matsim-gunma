@@ -4,6 +4,7 @@ import jakarta.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.matsim.api.core.v01.TransportMode;
 import org.matsim.application.analysis.population.TripAnalysis;
 import org.matsim.application.options.CsvOptions;
 import org.matsim.core.utils.io.IOUtils;
@@ -184,7 +185,7 @@ public class GunmaTripDashboard implements Dashboard {
 			.el(Table.class, (viz, data) -> {
 				viz.title = "Mode Statistics";
 				viz.description = "by main mode, over whole trip (including access & egress)";
-				viz.dataset = data.compute(TripAnalysis.class, "trip_stats.csv", args);
+				viz.dataset = data.computeWithPlaceholder(TripAnalysis.class, "trip_stats_%s.csv", TransportMode.car, args);
 				viz.showAllRows = true;
 			})
 			.el(Plotly.class, (viz, data) -> {
@@ -252,7 +253,7 @@ public class GunmaTripDashboard implements Dashboard {
 				viz.title = "Mode shift";
 				viz.width = 1.5d;
 				viz.description = "by main mode. Compares initial input with output after the last iteration";
-				viz.csv = data.compute(TripAnalysis.class, "mode_shift.csv", args);
+				viz.csv = data.computeWithPlaceholder(TripAnalysis.class, "mode_shift_%s.csv", TransportMode.car, args);
 			});
 
 		createDistancePlot(layout, args, tab);
@@ -351,7 +352,7 @@ public class GunmaTripDashboard implements Dashboard {
 			viz.colorRamp = ColorScheme.Viridis;
 			viz.interactive = Plotly.Interactive.dropdown;
 
-			Plotly.DataSet ds = viz.addDataset(data.compute(TripAnalysis.class, "mode_share_distance_distribution.csv", args))
+			Plotly.DataSet ds = viz.addDataset(data.computeWithPlaceholder(TripAnalysis.class, "mode_share_distance_distribution_%s.csv", TransportMode.car, args))
 				.pivot(List.of("dist"), MAIN_MODE_COLUMN, SHARE_COLUMN)
 				.constant(SOURCE_COLUMN, "Sim");
 
