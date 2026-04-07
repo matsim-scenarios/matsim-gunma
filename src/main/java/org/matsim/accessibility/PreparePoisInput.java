@@ -50,23 +50,27 @@ public final class PreparePoisInput {
 		ActivityFacilitiesFactory aff = scenario.getActivityFacilities().getFactory();
 
 		// 1) ADD SHINKANSEN STATIONS
+		// remember to switch what you see in OSM, because they do northing (y) and then easting (x)
 		ActivityOption shinkansenAO = aff.createActivityOption("shinkansen");
-		ActivityFacility takasaki = aff.createActivityFacility(Id.create("Takasaki", ActivityFacility.class), new Coord(35878.2, 46039.3));
+		ActivityFacility takasaki = aff.createActivityFacility(Id.create("Takasaki", ActivityFacility.class), new Coord(46039.3,35878.2));
 		takasaki.addActivityOption(shinkansenAO);
 		scenario.getActivityFacilities().addActivityFacility(takasaki);
 
-		ActivityFacility jomoKogen = aff.createActivityFacility(Id.create("Jōmō-Kōgen", ActivityFacility.class), new Coord(77005.12, 42678.01));
+
+//		36.69337040985355, 138.97751416820984
+//		77018.98,42675.85
+		ActivityFacility jomoKogen = aff.createActivityFacility(Id.create("Jōmō-Kōgen", ActivityFacility.class), new Coord(42678.01,77005.12));
 		jomoKogen.addActivityOption(shinkansenAO);
 		scenario.getActivityFacilities().addActivityFacility(jomoKogen);
 
-		ActivityFacility annakaHaruna = aff.createActivityFacility(Id.create("Annaka-Haruna", ActivityFacility.class), new Coord(40283.47, 31359.07));
+		ActivityFacility annakaHaruna = aff.createActivityFacility(Id.create("Annaka-Haruna", ActivityFacility.class), new Coord(31359.07, 40283.47));
 		annakaHaruna.addActivityOption(shinkansenAO);
 		scenario.getActivityFacilities().addActivityFacility(annakaHaruna);
 
 		// 2) Add Single Point in middle of Gunma
 
 
-		ActivityFacility middleFacility = aff.createActivityFacility(Id.create("middle_facility", ActivityFacility.class), new Coord(56183, 44853));
+		ActivityFacility middleFacility = aff.createActivityFacility(Id.create("middle_facility", ActivityFacility.class), new Coord(44853, 56183));
 		middleFacility.addActivityOption(aff.createActivityOption("middle"));
 		scenario.getActivityFacilities().addActivityFacility(middleFacility);
 

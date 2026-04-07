@@ -16,22 +16,22 @@ library(tmap)
 
 
 ```{r}
-persons_base <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18-base/gunma.output_persons.csv.gz") %>%  
+persons_base <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18b-base-3000/gunma.output_persons.csv.gz") %>%  
   filter(!str_starts(person,"commuter")) %>%
   mutate(age_round = floor(age/10)*10) %>% 
   mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+")))
 
-trips_base <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18-base/gunma.output_trips.csv.gz") %>%  
+trips_base <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18b-base-3000/gunma.output_trips.csv.gz") %>%  
   filter(!str_starts(person,"commuter")) 
 
 
 
-persons_policy <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18-policy/gunma.output_persons.csv.gz")  %>%  
+persons_policy <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18b-policy-3000/gunma.output_persons.csv.gz")  %>%  
   filter(!str_starts(person,"commuter")) %>%
   mutate(age_round = floor(age/10)*10) %>% 
   mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+")))
 
-trips_policy <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18-policy/gunma.output_trips.csv.gz") %>%  
+trips_policy <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18b-policy-3000/gunma.output_trips.csv.gz") %>%  
   filter(!str_starts(person,"commuter")) 
 
 # persons <- persons_raw %>%
@@ -70,7 +70,7 @@ trips_processed %>%
   facet_grid(~sex) +
   theme_minimal(base_size = 14) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  labs(title = "Reference", x = "Age Group", y = "Modal Split (Trip-Based)")
+  labs(x = "Age Group", y = "Modal Split (Trip-Based)")
 
 
 trips_base %>% 
@@ -87,7 +87,7 @@ trips_base %>%
   facet_grid(~sex) +
   theme_minimal(base_size = 14)+
   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  labs(title = "Base",x = "Age Group", y = "Modal Split (Trip-Based)")
+  labs(x = "Age Group", y = "Modal Split (Trip-Based)")
 
 trips_policy %>% 
   left_join(persons_policy, by = "person") %>% 
@@ -103,12 +103,12 @@ trips_policy %>%
   facet_grid(~sex) +
   theme_minimal(base_size = 14)+
   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  labs(title = "Policy",x = "Age Group", y = "Modal Split (Trip-Based)")
+  labs(x = "Age Group", y = "Modal Split (Trip-Based)")
 ```
 
 trip time
 ```{r}
-trips_base %>% view()
+trips_base %>% 
   left_join(persons_base, by = "person") %>% 
   select(trav_time,age_factor,sex) %>% 
   group_by(age_factor,sex) %>%
@@ -154,8 +154,3 @@ ggplot(score_policy,aes(age_factor, score, fill = sex)) + geom_col(position = "d
 left_join(score_base,score_policy, by = c("age_factor","sex")) %>% mutate(score_diff = score.y-score.x) %>% 
   ggplot() + geom_col(aes(age_factor,score_diff,fill = sex), position = "dodge")
 ```
-travel time
-```{r}
-
-```
-

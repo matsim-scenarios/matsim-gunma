@@ -94,6 +94,8 @@ bbox <- st_bbox(c(
   xmax = 533396
 ), crs = st_crs(2450))
 
+bbox<- st_bbox(st_buffer(gunma_shp, 200000))
+
 
 tokyo <- st_as_sf(
   data.frame(name = "Tokyo", x = 114720.9, y = -34663.6),
@@ -103,8 +105,9 @@ tokyo <- st_as_sf(
 
 japan_map <- tm_basemap("Esri.WorldGrayCanvas") + 
   tm_shape(bbox %>% st_as_sfc())+
-  tm_shape(pref_shp %>% filter(NAME_1 == "Gunma")) + tm_fill(fill = "blue") +
-  tm_shape(tokyo) +  tm_symbols(shape = 8, size = 0.3) + tm_text("name",xmod = 3, ymod = - 3, size = 0.5)
+  tm_shape(pref_shp %>% filter(NAME_1 == "Gunma")) + tm_fill(fill = "blue") + 
+  tm_text("NAME_1",xmod = -5, ymod = 4, size = 1, col = "blue") +
+  tm_shape(tokyo) +  tm_symbols(shape = 8, size = 1) + tm_text("name",xmod = 2, ymod = - 3, size = 1)
 
 
 japan_map
@@ -119,6 +122,8 @@ fig_map <- tm_basemap("Esri.WorldGrayCanvas") +
     width = 12,
     position = tm_pos_in(0.0,1.0)
   )
+
+fig_map
 
 tmap_save(fig_map, filename = "../shared-svn/projects/matsim-gunma/figures/map_gunma_population.png")
 

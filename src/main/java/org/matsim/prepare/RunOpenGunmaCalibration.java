@@ -96,7 +96,7 @@ public class RunOpenGunmaCalibration extends MATSimApplication {
 	public static final Set<String> FLEXIBLE_ACTS = Set.of(Activities.other.name());
 	private static final Logger log = LogManager.getLogger(RunOpenGunmaCalibration.class);
 	@CommandLine.Mixin
-	private final SampleOptions sample = new SampleOptions(25, 10, 1);
+	private final SampleOptions sample = new SampleOptions(100, 25, 10, 1);
 	@CommandLine.Option(names = "--mode", description = "Calibration mode that should be run.")
 	private CalibrationMode mode;
 	@CommandLine.Option(names = "--weight", description = "Strategy weight.", defaultValue = "1")
