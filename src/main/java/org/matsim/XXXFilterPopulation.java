@@ -16,7 +16,7 @@
 //	static void main() {
 //		Scenario scenario = ScenarioUtils.createScenario(ConfigUtils.createConfig());
 //
-//		new PopulationReader(scenario).readFile("/Users/jakob/gunma-v1.6-100pct-plans.xml.gz");
+//		new PopulationReader(scenario).readFile("input/v1.6/gunma-v1.6-1pct-plans.xml.gz");
 //
 //		Set<Id<Person>> personsToRemove = new HashSet<>();
 //		for (Person person : scenario.getPopulation().getPersons().values()) {
@@ -38,7 +38,7 @@
 //		}
 //
 //
-//		new PopulationWriter(scenario.getPopulation()).write("/Users/jakob/gunma-v1.6-100pct-plans-filtered85.xml.gz");
+//		new PopulationWriter(scenario.getPopulation()).write("input/v1.6/gunma-v1.6-1pct-plans-filtered85.xml.gz");
 //
 //
 //
