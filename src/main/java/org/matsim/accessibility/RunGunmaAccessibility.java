@@ -46,18 +46,68 @@ public final class RunGunmaAccessibility {
 	static final String coordinateSystem = "EPSG:2450";
 	static final String dirToCopy = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-13-base/";
 
-	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-29-afternoon/drt-2500-differentiated-mean/";
 	//	static final List<String> relevantPois = List.of("supermarket", "public_bath", "hospital", "shinkansen", "middle");
-	static final List<String> relevantPois = List.of("supermarket");
+	static final List<String> relevantPois = List.of("supermarket", "shinkansen");
 
-//	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.car, Modes4Accessibility.teleportedWalk);
-	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.estimatedDrt);
+	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.car, Modes4Accessibility.teleportedWalk);
+//	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.estimatedDrt);
 
 	private static final boolean personBased = true;
 
-	private static final boolean drtDifferentiated = true;
+	private static final boolean drtDifferentiated = false;
 
-	private static final boolean filterPopulation85 = true;
+	private static final PopulationFilter filterPopulation = PopulationFilter.base;
+
+
+	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-17a-carWalk-supermarketShinkansen";
+
+	// DRT Estimator
+
+	// SMALL: Fleet Size of 500 vehicles
+//	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-13/01-drt-500/";
+//	private static final double drtDetourIntercept = 1.31;
+//	private static final double drtDetourSlope = 1.09;
+//	private static final ShpOptions drtWaitShp = new ShpOptions("../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-small-gunma.shp", "EPSG:2450", null);
+//	private static final int baseTypicalWaitingTime = 3837;
+
+	// SMALL: Fleet Size of 1000 vehicles
+//	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-13/04-drt-1000-uniform-wait-time/";
+//	private static final double drtDetourIntercept = 0.479;
+//	private static final double drtDetourSlope = 1.18;
+//	private static final ShpOptions drtWaitShp = new ShpOptions("../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-small-gunma.shp", "EPSG:2450", null);
+//	private static final int baseTypicalWaitingTime = 838;
+//
+	private static final int drtConstantWaitTime = 632;
+
+
+	// LARGE: Fleet Size of 1500 vehicles
+//	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-13/01-drt-1500/";
+	private static final double drtDetourIntercept = 0.787;
+	private static final double drtDetourSlope = 1.21;
+	private static final ShpOptions drtWaitShp = new ShpOptions("../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-large-gunma.shp", "EPSG:2450", null);
+	private static final int baseTypicalWaitingTime = 440;
+
+	// DRT SCORING
+	//old
+//	private static double drtScoringAsc = 0.0;
+//	private static double drtScoringBetaDist = -2.5E-4;
+//	private static double drtScoringBetaTime = 0.0;
+//	private static double drtScoringMonetaryDist = 0.0;
+
+	//new
+	private static double drtScoringAsc = -1.653;
+	private static double drtScoringBetaTime = -2.04;
+	private static double drtScoringBetaDist = 0.0;
+	private static double drtScoringMonetaryDist = -0.036;
+
+	// test
+//	private static double drtScoringAsc = 0.0;
+//	private static double drtScoringBetaTime = 0.0;
+//	private static double drtScoringBetaDist = 0.0;
+//	private static double drtScoringMonetaryDist = 0.0;
+	// 	 Constant Wait time
+
+
 
 	private RunGunmaAccessibility() {
 		// prevent instantiation
@@ -165,9 +215,10 @@ public final class RunGunmaAccessibility {
 
 		// scoring
 		ScoringConfigGroup.ModeParams drtParams = new ScoringConfigGroup.ModeParams(TransportMode.drt);
-		drtParams.setConstant(0.0);
-		drtParams.setMarginalUtilityOfDistance(-2.5E-4);
-		drtParams.setMarginalUtilityOfTraveling(0.0);
+		drtParams.setConstant(drtScoringAsc);
+		drtParams.setMarginalUtilityOfDistance(drtScoringBetaDist);
+		drtParams.setMarginalUtilityOfTraveling(drtScoringBetaTime);
+		drtParams.setMonetaryDistanceRate(drtScoringMonetaryDist);
 		config.scoring().addModeParams(drtParams);
 
 
@@ -182,12 +233,13 @@ public final class RunGunmaAccessibility {
 		commutersIds.forEach(id -> scenario.getPopulation().removePerson(id));
 
 
-		if(filterPopulation85){
+		if (filterPopulation == PopulationFilter.filter85plus) {
+
 			// Only look at 85+ agents!
 			Set<Id<Person>> personsToRemove = new HashSet<>();
 			for (Person person : scenario.getPopulation().getPersons().values()) {
 				if (person.getAttributes().getAttribute("age") == null ||
-					(int) person.getAttributes().getAttribute("age") < 85){
+					(int) person.getAttributes().getAttribute("age") < 85) {
 
 //					person.getAttributes().getAttribute("zone") != "10383") consider including 10382
 
@@ -202,9 +254,16 @@ public final class RunGunmaAccessibility {
 			for (Id<Person> personId : personsToRemove) {
 				scenario.getPopulation().getPersons().remove(personId);
 			}
+		} else if (filterPopulation == PopulationFilter.threeAgents) {
+			Set<Id<Person>> personsToRemove = new HashSet<>(scenario.getPopulation().getPersons().keySet());
+			personsToRemove.remove(Id.createPersonId("gunma_f000110a2"));
+			personsToRemove.remove(Id.createPersonId("gunma_f0039c14b"));
+			personsToRemove.remove(Id.createPersonId("gunma_f0199eb38"));
+
+			for (Id<Person> personId : personsToRemove) {
+				scenario.getPopulation().getPersons().remove(personId);
+			}
 		}
-
-
 
 
 		//		== Bounding box from persons home coords ==
@@ -228,24 +287,21 @@ public final class RunGunmaAccessibility {
 
 		DrtEstimator drtEstimator;
 		if(drtDifferentiated){
-			ShpOptions shpOptions = new ShpOptions("../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-2500-gunma.shp", "EPSG:2450", null);
 
-			List<SimpleFeature> zonesToWaitTimes = shpOptions.readFeatures();
-				// DRT Estimator
+			List<SimpleFeature> zonesToWaitTimes = drtWaitShp.readFeatures();
 			drtEstimator = new DirectTripBasedDrtEstimator.Builder()
 				// baseTypicalWaitTime should be egal, but I will set it as the highest zonal waiting time
-				.setWaitingTimeEstimator(new ShapeFileBasedWaitingTimeEstimator(scenario.getNetwork(), zonesToWaitTimes, 1264))
+				.setWaitingTimeEstimator(new ShapeFileBasedWaitingTimeEstimator(scenario.getNetwork(), zonesToWaitTimes, baseTypicalWaitingTime))
 				.setWaitingTimeDistributionGenerator(new NoDistribution())
-				.setRideDurationEstimator(new ConstantRideDurationEstimator(1, 0))
+				.setRideDurationEstimator(new ConstantRideDurationEstimator(drtDetourSlope, drtDetourIntercept))
 				.setRideDurationDistributionGenerator(new NoDistribution())
 				.build();
 
 		} else {
-			// 	 Constant Wait time
 			drtEstimator = new DirectTripBasedDrtEstimator.Builder()
-				.setWaitingTimeEstimator(new ConstantWaitingTimeEstimator(541))
+				.setWaitingTimeEstimator(new ConstantWaitingTimeEstimator(drtConstantWaitTime))
 				.setWaitingTimeDistributionGenerator(new NoDistribution())
-				.setRideDurationEstimator(new ConstantRideDurationEstimator(1, 0))
+				.setRideDurationEstimator(new ConstantRideDurationEstimator(drtDetourSlope, drtDetourIntercept))
 				.setRideDurationDistributionGenerator(new NoDistribution())
 				.build();
 
@@ -298,5 +354,14 @@ public final class RunGunmaAccessibility {
 		}
 		sw.run(Path.of(outputDir));
 
+	}
+
+	/**
+	 * Defines which policy case (or base case) is being simulated.
+	 */
+	public enum PopulationFilter {
+		base,
+		filter85plus,
+		threeAgents
 	}
 }

@@ -12,8 +12,14 @@ import org.matsim.api.core.v01.population.*;
 import org.matsim.application.MATSimApplication;
 import org.matsim.application.options.SampleOptions;
 import org.matsim.application.options.ShpOptions;
+import org.matsim.contrib.common.zones.systems.grid.square.SquareGridZoneSystemParams;
+import org.matsim.contrib.drt.optimizer.insertion.extensive.ExtensiveInsertionSearchParams;
 import org.matsim.contrib.drt.routing.DrtRoute;
 import org.matsim.contrib.drt.routing.DrtRouteFactory;
+import org.matsim.contrib.drt.run.DrtConfigGroup;
+import org.matsim.contrib.drt.run.DrtConfigs;
+import org.matsim.contrib.drt.run.MultiModeDrtConfigGroup;
+import org.matsim.contrib.drt.run.MultiModeDrtModule;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicleSpecification;
 import org.matsim.contrib.dvrp.fleet.FleetWriter;
@@ -49,6 +55,7 @@ import org.matsim.prepare.population.Attributes;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 import picocli.CommandLine;
 
+import java.io.File;
 import java.net.URL;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -73,9 +80,11 @@ public class OpenGunmaScenario extends MATSimApplication {
 
 	@CommandLine.Option(names = "--policy-case", description = "Which policy case to use")
 	private PolicyCase policyCase = PolicyCase.base;
+	private Set<Id<Link>> filteredLinkIds;
 
 	public OpenGunmaScenario() {
-		super(ConfigUtils.loadConfig(String.format("input/v%s/gunma-v%s-config-taxi.xml", VERSION, VERSION)));
+//		super(ConfigUtils.loadConfig(String.format("input/v%s/gunma-v%s-config-taxi.xml", VERSION, VERSION)));
+		super(ConfigUtils.loadConfig(String.format("input/v%s/gunma-v%s-config.xml", VERSION, VERSION)));
 
 	}
 
@@ -227,7 +236,7 @@ public class OpenGunmaScenario extends MATSimApplication {
 			);
 		}
 
-		if (policyCase == PolicyCase.drt || policyCase == PolicyCase.drtOnly) {
+		if (policyCase == PolicyCase.drtOnly || policyCase == PolicyCase.drtOnlyAsTaxi) {
 
 			config.plans().setInputFile("gunma-v1.6-100pct-plans-filtered85.xml.gz");
 
@@ -238,9 +247,9 @@ public class OpenGunmaScenario extends MATSimApplication {
 
 
 			// create taxis file
-			int numTaxis = 1501;
+			int numTaxis = 750;
 
-			config.controller().setOutputDirectory("output-" + numTaxis);
+
 			String taxiFileName = "gunma-v" + VERSION + "-taxis-" + numTaxis + ".xml";
 			URL taxiFileUrl = ConfigGroup.getInputFileURL(config.getContext(), taxiFileName);
 			URL networkUrl = ConfigGroup.getInputFileURL(config.getContext(), config.network().getInputFile());
@@ -248,29 +257,91 @@ public class OpenGunmaScenario extends MATSimApplication {
 			Network filteredNetwork = filterNetworkToShape(networkUrl.getPath(), "../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp");
 			generateTaxiFleet(numTaxis, taxiFileUrl.getPath(), filteredNetwork);
 
+			filteredLinkIds = filteredNetwork.getLinks().keySet();
+
 			//taxi config
-			ConfigUtils.addOrGetModule(config, DvrpConfigGroup.class);
-			ConfigUtils.addOrGetModule(config, MultiModeTaxiConfigGroup.class);
-			TaxiConfigGroup taxiConfig = TaxiConfigGroup.getSingleModeTaxiConfig(config);
-			taxiConfig.taxisFile = taxiFileName;
-			taxiConfig.dropoffDuration = 60;
-			taxiConfig.pickupDuration = 120;
 
-			taxiConfig.detailedStats = true;
-			taxiConfig.timeProfiles = true;
+			DvrpConfigGroup dvrpConfig = ConfigUtils.addOrGetModule(config, DvrpConfigGroup.class);
+			if (policyCase == PolicyCase.drtOnlyAsTaxi) {
+				config.controller().setOutputDirectory("output-" + numTaxis);
+				MultiModeTaxiConfigGroup multiModeTaxiConfigGroup = ConfigUtils.addOrGetModule(config, MultiModeTaxiConfigGroup.class);
+//				TaxiConfigGroup taxiConfig = new TaxiConfigGroup();
+				TaxiConfigGroup taxiConfig = TaxiConfigGroup.getSingleModeTaxiConfig(config);
+				taxiConfig.taxisFile = taxiFileName;
+				taxiConfig.dropoffDuration = 60;
+				taxiConfig.pickupDuration = 120;
+
+				taxiConfig.detailedStats = true;
+				taxiConfig.timeProfiles = true;
+//				multiModeTaxiConfigGroup.addParameterSet(taxiConfig);
 
 
 
-			// Scoring
-			ScoringConfigGroup.ModeParams taxiParams = new ScoringConfigGroup.ModeParams(TransportMode.taxi);
-			config.scoring().addModeParams(taxiParams);
+				// Scoring
+				ScoringConfigGroup.ModeParams taxiParams = new ScoringConfigGroup.ModeParams(TransportMode.taxi);
+				config.scoring().addModeParams(taxiParams);
+			 } else {
+				config.controller().setOutputDirectory("output-drt-" + numTaxis);
+				dvrpConfig.setNetworkModes(Set.of(TransportMode.drt));
+
+				SquareGridZoneSystemParams squareGridZoneSystemParams = new SquareGridZoneSystemParams();
+				squareGridZoneSystemParams.setCellSize(200);
+//				dvrpConfig.getTravelTimeMatrixParams().
+				dvrpConfig.getTravelTimeMatrixParams().addParameterSet(squareGridZoneSystemParams);
+
+//				String cachePath = new File("/Users/jakob/git/matsim-gunma/input/v1.6/cache.bin").getAbsolutePath();
+//				dvrpConfig.getTravelTimeMatrixParams().setCachePath(cachePath);
+				// (config group needs to be "materialized")
+
+				MultiModeDrtConfigGroup multiModeDrtCfg = ConfigUtils.addOrGetModule(config, MultiModeDrtConfigGroup.class);
+				{
+					DrtConfigGroup drtConfig = new DrtConfigGroup();
+					drtConfig.setMode(TransportMode.drt);
+					drtConfig.setStopDuration(60.);
+					drtConfig.addOrGetDrtOptimizationConstraintsParams().addOrGetDefaultDrtOptimizationConstraintsSet().setMaxWaitTime(900);
+					drtConfig.addOrGetDrtOptimizationConstraintsParams().addOrGetDefaultDrtOptimizationConstraintsSet().setMaxTravelTimeAlpha(1.3);
+					drtConfig.addOrGetDrtOptimizationConstraintsParams().addOrGetDefaultDrtOptimizationConstraintsSet().setMaxTravelTimeBeta(10. * 60.);
+					drtConfig.addOrGetDrtOptimizationConstraintsParams().addOrGetDefaultDrtOptimizationConstraintsSet().setRejectRequestIfMaxWaitOrTravelTimeViolated(false);
+					drtConfig.setVehiclesFile(taxiFileName);
+
+					//changed to false because it1 was way worse in terms of wait times than it0.
+					drtConfig.setChangeStartLinkToLastLinkInSchedule(false);
+					drtConfig.setDrtInsertionSearchParams( new ExtensiveInsertionSearchParams() );
+					drtConfig.setOperationalScheme(DrtConfigGroup.OperationalScheme.door2door);
+//					drtConfig.setTransitStopFile("gunma-v" + OpenGunmaScenario.VERSION + "-drt_stops.xml");
+
+					drtConfig.setDrtServiceAreaShapeFile("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp");
+					multiModeDrtCfg.addDrtConfigGroup(drtConfig);
+				}
+
+				for (DrtConfigGroup drtCfg : multiModeDrtCfg.getModalElements()) {
+					DrtConfigs.adjustDrtConfig(drtCfg, config.scoring(), config.routing());
+				}
+				{
+					// add params so that scoring works:
+					config.scoring().addModeParams( new ScoringConfigGroup.ModeParams( TransportMode.drt ) );
+				}
+//				{
+					// clear strategy settings from config file:
+//					config.replanning().clearStrategySettings();
+//
+//					// configure mode innovation so that travellers start using drt:
+//					config.replanning().addStrategySettings( new StrategySettings().setStrategyName( DefaultStrategy.ChangeSingleTripMode ).setWeight( 0.1 ) );
+//					config.changeMode().setModes( new String[]{TransportMode.car, DRT_A, DRT_B, DRT_C} );
+//
+//					// have a "normal" plans choice strategy:
+//					config.replanning().addStrategySettings( new StrategySettings().setStrategyName( DefaultSelector.ChangeExpBeta ).setWeight( 1. ) );
+
+
+
+				}
+
 
 			//QSIM
 			config.qsim().setSimStarttimeInterpretation(QSimConfigGroup.StarttimeInterpretation.onlyUseStarttime);
 
 		}
 
-//		new ConfigWriter(config).write("sdkjhfadslkjasdhf.xml");
 		return config;
 	}
 
@@ -296,49 +367,30 @@ public class OpenGunmaScenario extends MATSimApplication {
 					}
 				}
 			}
-		} else if (policyCase == PolicyCase.drt) {
-			Set<Id<Person>> personsToRemove = new HashSet<>();
-			for (Person person : scenario.getPopulation().getPersons().values()) {
-				if (person.getAttributes().getAttribute("age") == null ||
-					(int) person.getAttributes().getAttribute("age") < 75){
+		} else if (policyCase == PolicyCase.drtOnlyAsTaxi || policyCase == PolicyCase.drtOnly) {
 
-//					person.getAttributes().getAttribute("zone") != "10383") consider including 10382
 
-					personsToRemove.add(person.getId());
+			String targetMode;
+			if(policyCase == PolicyCase.drtOnlyAsTaxi){
+				targetMode = TransportMode.taxi;
+			} else {
+				targetMode = TransportMode.drt;
+
+				for (Id<Link> filteredLinkId : filteredLinkIds) {
+					Set<String> allowedModes = new HashSet<>(scenario.getNetwork().getLinks().get(filteredLinkId).getAllowedModes());
+					allowedModes.add(TransportMode.drt);
+					scenario.getNetwork().getLinks().get(filteredLinkId).setAllowedModes(allowedModes);
 				}
 
-//				if(!String.valueOf(person.getAttributes().getAttribute("zone")).equals("10383")){
-//					personsToRemove.add(person.getId());
-//				}
+				NetworkUtils.cleanNetwork(scenario.getNetwork(), Set.of(TransportMode.drt));
+
 			}
-
-			for (Id<Person> personId : personsToRemove) {
-				scenario.getPopulation().getPersons().remove(personId);
-			}
-
-//			Plan plan = scenario.getPopulation().getPersons().get(Id.createPersonId("gunma_f03408691")).getSelectedPlan();
-//			replaceModeLegsWithOtherMode(plan, Set.of(TransportMode.car), TransportMode.taxi);
-
-			for (Person person : scenario.getPopulation().getPersons().values()) {
-				replaceModeLegsWithOtherMode(person.getSelectedPlan(), Set.of(TransportMode.car), TransportMode.taxi);
-			}
-
-
-			// DRT route factory (see DrtControlerCreator)
-			scenario.getPopulation()
-				.getFactory()
-				.getRouteFactories()
-				.setRouteFactory(DrtRoute.class, new DrtRouteFactory());
-
-		} else if (policyCase == PolicyCase.drtOnly) {
 
 			ShpOptions shp = new ShpOptions("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp", null, null);
 			ShpOptions.Index jisIndex = shp.createIndex(
 				shp.getShapeCrs(),
 				Attributes.JIS_ZONE_FIELD
 			);
-
-			int replacementCnt = 0;
 
 			for(Person person : scenario.getPopulation().getPersons().values()) {
 				Plan plan = person.getSelectedPlan();
@@ -347,20 +399,6 @@ public class OpenGunmaScenario extends MATSimApplication {
 				plan.setScore(null);
 
 				for (TripStructureUtils.Trip trip : TripStructureUtils.getTrips(plan)) {
-
-
-					String originZone = findZone(trip.getOriginActivity(), person, scenario, jisIndex);
-//					if (scenario.getActivityFacilities().getFacilities().containsKey(trip.getOriginActivity().getFacilityId())) {
-//						originZone = (String) scenario.getActivityFacilities().getFacilities().get(trip.getOriginActivity().getFacilityId()).getAttributes().getAttribute("zone");
-//					}
-
-					String destinationZone = findZone(trip.getOriginActivity(), person, scenario, jisIndex);
-
-//					if (scenario.getActivityFacilities().getFacilities().containsKey(trip.getOriginActivity().getFacilityId())) {
-//						destinationZone = (String) scenario.getActivityFacilities().getFacilities().get(trip.getOriginActivity().getFacilityId()).getAttributes().getAttribute("zone");
-//					}
-
-					// origin and destination should be in gunma for taxi trip to be activated
 
 
 					// Check if any of the modes is in the trip
@@ -380,17 +418,20 @@ public class OpenGunmaScenario extends MATSimApplication {
 
 					fullTrip.clear();
 
+					String originZone = findZone(trip.getOriginActivity(), person, scenario, jisIndex);
+					String destinationZone = findZone(trip.getOriginActivity(), person, scenario, jisIndex);
+
+					// origin and destination should be in gunma for taxi trip to be activated
+
 					if (!originZone.startsWith("10") || !destinationZone.startsWith("10") || cleanLeg.isEmpty()){
 						continue;
 					}
 
 
-					Leg leg = PopulationUtils.createLeg(TransportMode.taxi);
-					TripStructureUtils.setRoutingMode(leg, TransportMode.taxi);
+					Leg leg = PopulationUtils.createLeg(targetMode);
+					TripStructureUtils.setRoutingMode(leg, targetMode);
 					fullTrip.add(leg);
 
-
-					replacementCnt++;
 				}
 
 			}
@@ -404,7 +445,7 @@ public class OpenGunmaScenario extends MATSimApplication {
 					stream().
 					map(Leg::getRoutingMode).
 					collect(Collectors.toSet()).
-					contains(TransportMode.taxi);
+					contains(targetMode);
 
 				if (!personHasTaxiLeg) {
 					personsToRemove.add(person.getId());
@@ -458,37 +499,19 @@ public class OpenGunmaScenario extends MATSimApplication {
 	@Override
 	protected void prepareControler(Controler controler) {
 
-		if (policyCase == PolicyCase.drt || policyCase == PolicyCase.drtOnly) {
+		if ( policyCase == PolicyCase.drtOnlyAsTaxi) {
 
 			controler.addOverridingModule(new DvrpModule());
-//			controler.addOverridingModule(new OneTaxiModule(taxiFileUrl, PassengerEngineQSimModule.PassengerEngineType.DEFAULT));
 			controler.addOverridingModule(new MultiModeTaxiModule());
 			controler.configureQSimComponents(DvrpQSimComponents.activateAllModes(MultiModeTaxiConfigGroup.get(controler.getConfig())));
 
 			controler.configureQSimComponents(DvrpQSimComponents.activateModes(TransportMode.taxi));
-		}
+		} else if (policyCase == PolicyCase.drtOnly) {
+			controler.addOverridingModule( new DvrpModule() ) ;
+			controler.addOverridingModule( new MultiModeDrtModule( ) ) ;
+			controler.configureQSimComponents(DvrpQSimComponents.activateModes(TransportMode.drt));
 
-//		controler.addOverridingModule(new SimWrapperModule());
-//
-//		controler.addOverridingModule(new TravelTimeBinding());
-//
-//		controler.addOverridingModule(new QsimTimingModule());
-//
-//		// AdvancedScoring is specific to matsim-berlin!
-//		if (ConfigUtils.hasModule(controler.getConfig(), AdvancedScoringConfigGroup.class)) {
-//			controler.addOverridingModule(new AdvancedScoringModule());
-//			controler.getConfig().scoring().setExplainScores(true);
-//		} else {
-//			// if the above config group is not present we still need income dependent scoring
-//			// this implementation also allows for person specific asc
-//			controler.addOverridingModule(new AbstractModule() {
-//				@Override
-//				public void install() {
-//					bind(ScoringParametersForPerson.class).to(IncomeDependentUtilityOfMoneyPersonScoringParameters.class).asEagerSingleton();
-//				}
-//			});
-//		}
-//		controler.addOverridingModule(new PersonMoneyEventsAnalysisModule());
+		}
 	}
 
 	// adapted from src/main/java/org/matsim/application/prepare/network/zone_preparation/PrepareMaxTravelTimeBasedZonalSystem.java
@@ -554,8 +577,9 @@ public class OpenGunmaScenario extends MATSimApplication {
 		base,
 		noCarAvailOver75base,
 		noCarAvailOver75policy,
-		drt,
-		drtOnly
+//		drt,
+		drtOnly,
+		drtOnlyAsTaxi
 	}
 
 

@@ -39,8 +39,8 @@ public final class PreparePoisInput {
 
 
 	public static void main(String[] args) {
-		File osmPoiCsv = new File("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/osm_buffer5km/poi_2450.csv");
-		File poisXml = new File("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/osm_buffer5km/pois.xml");
+		File osmPoiCsv = new File("../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/poi_2450.csv");
+		File poisXml = new File("../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/pois.xml");
 
 
 		// create scenario
@@ -104,6 +104,8 @@ public final class PreparePoisInput {
 		}
 
 		new FacilitiesWriter(scenario.getActivityFacilities()).write(poisXml.toString());
+
+		System.out.println("Done");
 
 	}
 
