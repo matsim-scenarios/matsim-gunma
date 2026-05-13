@@ -10,13 +10,13 @@ library(sf)
 library(tmap)
 library(lubridate)
 library(units)
+library(terra)
 ```
 
 General
 ```{r}
 pois <- st_read("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/poi_2450.shp")
 
-persons <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-17-base-accessibility/gunma.output_persons.csv.gz")
 
 
 district_dict <- data.frame(
@@ -43,6 +43,11 @@ gunma_shp_landuse <- gunma_shp %>%
 
 
 
+
+persons <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-17-base-accessibility/gunma.output_persons.csv.gz") %>%   left_join(gunma_shp_landuse %>% st_drop_geometry(), by = "zone")
+
+
+
 ```
 
 
@@ -57,15 +62,10 @@ pois <- st_read("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processe
 # SUPERMARKET
 accessibility <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-28a-hosp-supa-othermodes/analysis/accessibility/supermarket/accessibilities.csv")
 
-# accessibility_drt <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-28c-hosp-supa-drt-1500-differentiated/analysis/accessibility/supermarket/accessibilities.csv")
 
-
-accessibility_drt <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-29-afternoon/drt-1500-differentiated-mean-/analysis/accessibility/supermarket/accessibilities.csv")
+accessibility_drt <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-13/02-drt-1000-costs/analysis/accessibility/supermarket/accessibilities.csv")
 
 accessibility_unified <- full_join(accessibility,accessibility_drt, by = c("id","time"))
-
-
-persons <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-17-base-accessibility/gunma.output_persons.csv.gz") %>%   left_join(gunma_shp_landuse %>% st_drop_geometry(), by = "zone")
 
 
 tmap_mode("view")
@@ -123,8 +123,8 @@ fig_supermarket_2000 <- persons_processed_summarised %>%
   )
 
 fig_supermarket_2000
-
-ggsave(fig_supermarket_2000,width = 22, height = 10, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_2000.png")
+# 
+# ggsave(fig_supermarket_2000,width = 22, height = 10, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_2000.png")
 ```
 
 quick minicalculation for cba
@@ -152,24 +152,263 @@ xxx <- persons_processed_summarised %>%
   pivot_longer(c("base_max_accessibility",starts_with("policy")), names_to = "scenario", values_to = "accessibility") %>% 
   filter(scenario == "base_max_accessibility" | age_factor == "85+") %>% 
   mutate(scenario = factor(scenario, levels = c("base_max_accessibility","policy_safety_max_accessibility","policy_mobility_max_accessibility","policy_combined_max_accessibility"), labels = c("Base Case", "Policy\nSafety", "Policy\nMobility", "Policy\nCombined"))) %>% 
+  mutate(Gender = factor(sex, levels = c("f","m"), labels = c("Female","Male")))
+
+
+fig_urban <- ggplot(xxx %>% filter(landuse == "Urban")) + geom_col(aes(age_factor,accessibility, fill = Gender), position = "dodge")+ labs(x = "Age", y = "Accessibility (utils)")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
+    panel.spacing.x = unit(0.8, "lines")
+  ) + ylim(-11,4) + theme(legend.position = "bottom")
+   
+  
+fig_rural <- ggplot(xxx %>% filter(landuse == "Rural")) + geom_col(aes(age_factor,accessibility, fill = Gender), position = "dodge")+ labs(x = "Age", y = "Accessibility (utils)")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
+    panel.spacing.x = unit(0.8, "lines")
+  ) + ylim(-11,4)+ theme(legend.position = "bottom")
+  
+
+fig_urban
+fig_rural
+
+ggsave(fig_urban,width = 22, height = 15, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_1000_urban.png")
+
+ggsave(fig_rural,width = 22, height = 15, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_1000_rural.png")
+
+# fig_supermarket_2000
+# 
+# ggsave(fig_supermarket_2000,width = 22, height = 10, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_2000.png")
+
+
+```
+### Equity Analysis
+```{r}
+percentiles <- seq(0.1, 1.0, by = 0.1)
+
+# general population
+df_percentiles <- tibble(
+  percentile = percentiles,
+  base_max_accessibility = quantile(
+    persons_processed$base_max_accessibility,
+    probs = percentiles,
+    na.rm = TRUE
+  ),
+  policy_mobility_max_accessibility = quantile(
+    persons_processed$policy_mobility_max_accessibility,
+    probs = percentiles,
+    na.rm = TRUE
+  )
+) %>%
+  pivot_longer(
+    cols = c(base_max_accessibility,
+             policy_mobility_max_accessibility),
+    names_to = "scenario",
+    values_to = "accessibility"
+  ) %>% 
+  mutate(scenario = factor(scenario, levels = c("base_max_accessibility", "policy_mobility_max_accessibility"), labels = c("Base Case", "Policy Mobility"))) %>% 
+  mutate(percentile = factor(percentile * 100))
+
+ggplot(df_percentiles,
+       aes(x = percentile,
+           y = accessibility,
+           fill = scenario)) +
+  geom_col(position = "dodge", width = 0.7) +
+  labs(x = "Percentile", y = "Accessibility (utils)") +
+    scale_fill_manual(values = c(
+  `Base Case` = "#B2B2B2",
+  `Policy Safety` = "#B32928",
+  `Policy Mobility` = "#468EC7",
+  `Policy Combined` = "#8422F4"
+)) +
+  theme_minimal(base_size = 14)
+
+
+# 85+
+df_percentiles_85_plus <- tibble(
+  percentile = percentiles,
+  base_max_accessibility = quantile(
+    persons_processed %>% filter(age_factor == "85+") %>% pull(base_max_accessibility),
+    probs = percentiles,
+    na.rm = TRUE
+  ),
+  policy_mobility_max_accessibility = quantile(
+    persons_processed %>% filter(age_factor == "85+") %>% pull(policy_mobility_max_accessibility),
+    probs = percentiles,
+    na.rm = TRUE
+  )
+) %>%
+  pivot_longer(
+    cols = c(base_max_accessibility,
+             policy_mobility_max_accessibility),
+    names_to = "scenario",
+    values_to = "accessibility"
+  ) %>% 
+  mutate(scenario = factor(scenario, levels = c("base_max_accessibility", "policy_mobility_max_accessibility"), labels = c("Base Case", "Policy Mobility"))) %>% 
+  mutate(percentile = factor(percentile * 100))
+
+ggplot(df_percentiles_85_plus,
+       aes(x = percentile,
+           y = accessibility,
+           fill = scenario)) +
+  geom_col(position = "dodge", width = 0.7) +
+  scale_fill_manual(values = c(
+  `Base Case` = "#B2B2B2",
+  `Policy Safety` = "#B32928",
+  `Policy Mobility` = "#468EC7",
+  `Policy Combined` = "#8422F4"
+)) +
+  labs(x = "Percentile", y = "Accessibility (utils)") +
+  theme_minimal(base_size = 14)
+
+```
+
+### Map
+```{r}
+persons_processed %>% tm_shape() + tm_dots(fill = "base_max_accessibility")
+
+# convert to SpatVector if needed
+v <- vect(persons_processed)
+
+# raster template
+r <- rast(v, resolution = 1000)
+
+# rasterize weighted by accessibility
+r_sum <- rasterize(v, r, field = "base_max_accessibility", fun = sum)
+r_count <- rasterize(v, r, fun = length)
+
+# average accessibility per cell
+r_mean <- r_sum / r_count
+
+tmap_mode("plot")
+
+
+# tm_basemap("Stadia.StamenTerrainBackground", api = "996f61fe-f7b6-4641-bb2b-555eca9cdd21") + 
+tm_basemap("Esri.WorldGrayCanvas") +
+tm_shape(gunma_shp) +
+  tm_borders(col = "blue", lwd = 2) + 
+tm_shape(r_mean) +
+  tm_raster(
+    col = "sum",
+    palette = "viridis",
+    breaks = c(-100,-50,-10,-5,0,5),
+    title = "Accessibility (utils)"
+  ) + tm_shape(pois %>% filter(type == "supermarket")) + tm_dots(fill = "red", size = 0.2)
+
+```
+
+
+
+## SHINKANSEN
+```{r}
+pois <- st_read("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/poi_2450.shp")
+
+
+# SHINKANSEN
+# accessibility <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-17b-base-accessibility-supermarket/analysis/accessibility/shinkansen/accessibilities.csv")
+accessibility <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-17a-carWalk-supermarketShinkansen/analysis/accessibility/shinkansen/accessibilities.csv")
+
+
+accessibility_drt <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-27d-drt-2000veh-differentiated/analysis/accessibility/shinkansen/accessibilities.csv")
+
+accessibility_unified <- full_join(accessibility,accessibility_drt, by = c("id","time"))
+
+
+tmap_mode("view")
+
+persons_processed <- persons %>%
+  filter(!str_starts(person,"commuter")) %>% 
+  full_join(accessibility_unified,by = c("person" = "id")) %>% 
+  st_as_sf(coords = c("home_x","home_y"),crs=2450) %>%  
+  mutate(carAvail = replace_na(carAvail, "never")) %>% 
+  mutate(age_factor = case_when(age <18 ~ "0-17", age < 30 ~ "18-29", age <45 ~ "30-44", age <65 ~ "45-64", age <75 ~ "65-74", age < 85 ~ "75-84", .default = "85+")) %>% 
+    mutate(landuse = factor(landuse, levels = c("City","District"), labels = c("Urban", "Rural"))) %>% 
+  
+  
+
+  # Base 
+  mutate(base_max_accessibility = case_when(
+    carAvail == "never" ~ teleportedWalk_accessibility, 
+    .default = pmax(teleportedWalk_accessibility,car_accessibility))) %>% 
+  # Policy Safety: car unavailable over age 75
+  mutate(policy_safety_max_accessibility = case_when(
+    carAvail == "never" | age >=85 ~ teleportedWalk_accessibility, 
+    .default = pmax(teleportedWalk_accessibility,car_accessibility))) %>% 
+  # Policy Mobility : drt available over 75
+  mutate(policy_mobility_max_accessibility = case_when(
+    carAvail == "never" & age >=85 ~ pmax(teleportedWalk_accessibility, estimatedDrt_accessibility),
+    carAvail == "always" & age >=85 ~ pmax(teleportedWalk_accessibility, estimatedDrt_accessibility, car_accessibility),
+    carAvail == "never" ~ pmax(teleportedWalk_accessibility),
+    carAvail == "always" ~ pmax(teleportedWalk_accessibility, car_accessibility))) %>% 
+  # Policy Combined 
+  mutate(policy_combined_max_accessibility = case_when(
+     age >=85 ~ pmax(teleportedWalk_accessibility, estimatedDrt_accessibility),
+    carAvail == "never" ~ pmax(teleportedWalk_accessibility),
+    carAvail == "always" ~ pmax(teleportedWalk_accessibility, car_accessibility))) %>% 
+  
+    select(person,age_factor, sex, carAvail, executed_score,carAvail,landuse, ends_with("accessibility"))
+
+
+
+persons_processed_summarised <- persons_processed %>% 
+  st_drop_geometry() %>%
+  group_by(age_factor,sex) %>% 
+  summarise(base_max_accessibility = mean(base_max_accessibility), 
+            policy_safety_max_accessibility = mean(policy_safety_max_accessibility),
+            policy_mobility_max_accessibility = mean(policy_mobility_max_accessibility),
+            policy_combined_max_accessibility = mean(policy_combined_max_accessibility)) 
+  
+
+fig_shinkansen_2000 <- persons_processed_summarised %>% 
+  pivot_longer(c("base_max_accessibility",starts_with("policy")), names_to = "scenario", values_to = "accessibility") %>% 
+  filter(scenario == "base_max_accessibility" | age_factor == "85+") %>% 
+  mutate(scenario = factor(scenario, levels = c("base_max_accessibility","policy_safety_max_accessibility","policy_mobility_max_accessibility","policy_combined_max_accessibility"), labels = c("Base Case", "Policy\nSafety", "Policy\nMobility", "Policy\nCombined"))) %>% 
+  ggplot() + geom_col(aes(age_factor,accessibility, fill = sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
+    panel.spacing.x = unit(0.8, "lines")
+  )
+
+fig_shinkansen_2000
+
+ggsave(fig_shinkansen_2000,width = 22, height = 10, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_shinkansen_2000.png")
+```
+
+
+### urban / rural divide
+```{r}
+# by landuse
+persons_processed_summarised <- persons_processed %>% 
+  st_drop_geometry() %>%
+  group_by(age_factor,sex,landuse) %>% 
+  summarise(base_max_accessibility = mean(base_max_accessibility), 
+            policy_safety_max_accessibility = mean(policy_safety_max_accessibility),
+            policy_mobility_max_accessibility = mean(policy_mobility_max_accessibility),
+            policy_combined_max_accessibility = mean(policy_combined_max_accessibility)) 
+  
+
+xxx <- persons_processed_summarised %>% 
+  pivot_longer(c("base_max_accessibility",starts_with("policy")), names_to = "scenario", values_to = "accessibility") %>% 
+  filter(scenario == "base_max_accessibility" | age_factor == "85+") %>% 
+  mutate(scenario = factor(scenario, levels = c("base_max_accessibility","policy_safety_max_accessibility","policy_mobility_max_accessibility","policy_combined_max_accessibility"), labels = c("Base Case", "Policy\nSafety", "Policy\nMobility", "Policy\nCombined"))) %>% 
   mutate(Sex = factor(sex, levels = c("f","m"), labels = c("Female","Male")))
 
 
 fig_urban <- ggplot(xxx %>% filter(landuse == "Urban")) + geom_col(aes(age_factor,accessibility, fill = Sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
     panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
     panel.spacing.x = unit(0.8, "lines")
-  ) + ylim(-11,4) + theme(legend.position = "bottom")
+  ) + ylim(-125,0) + theme(legend.position = "bottom")
    
   
 fig_rural <- ggplot(xxx %>% filter(landuse == "Rural")) + geom_col(aes(age_factor,accessibility, fill = Sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
     panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
     panel.spacing.x = unit(0.8, "lines")
-  ) + ylim(-11,4)+ theme(legend.position = "bottom")
-  
+  ) + ylim(-125,0)+ theme(legend.position = "bottom")
 
-ggsave(fig_urban,width = 22, height = 15, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_1500_urban.png")
 
-ggsave(fig_rural,width = 22, height = 15, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_1500_rural.png")
+  fig_urban
+  fig_rural
+
+ggsave(fig_urban,width = 22, height = 15, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_shinkansen_2000_urban.png")
+
+ggsave(fig_rural,width = 22, height = 15, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_shinkasen_2000_rural.png")
 
 # fig_supermarket_2000
 # 
@@ -178,12 +417,55 @@ ggsave(fig_rural,width = 22, height = 15, unit = "cm", filename = "/Users/jakob/
 
 ```
 
+### Map
+```{r}
+persons_processed %>% tm_shape() + tm_dots(fill = "base_max_accessibility")
+
+
+# convert to SpatVector if needed
+v <- vect(persons_processed)
+
+# raster template
+r <- rast(v, resolution = 1000)
+
+# rasterize weighted by accessibility
+r_sum <- rasterize(v, r, field = "base_max_accessibility", fun = sum)
+r_count <- rasterize(v, r, fun = length)
+
+# average accessibility per cell
+r_mean <- r_sum / r_count
+
+tmap_mode("plot")
+
+
+
+shinkansen_pois <- data.frame(y = c(40283.47,77005.12,35878.2), x = c(31359.07,42678.01,46039.3)) %>%
+  st_as_sf(coords = c("x","y"), crs = 2450)
+
+# tm_basemap("Stadia.StamenTerrainBackground", api = "996f61fe-f7b6-4641-bb2b-555eca9cdd21") + 
+tm_basemap("Esri.WorldGrayCanvas") +
+tm_shape(gunma_shp) +
+  tm_borders(col = "blue", lwd = 2) + 
+
+tm_shape(r_mean) +
+  tm_raster(
+    col = "sum",
+    palette = "viridis",
+    breaks = c(-100,-50,-10,-5,0,5),
+    title = "Accessibility (utils)"
+  ) + tm_shape(shinkansen_pois) + tm_dots(fill = "red")
+
+```
+
+
 # Location & Person Based
 
 ```{r}
-acc_with_loc <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-29-afternoon/drt-1500-differentiated-mean-/analysis/accessibility/supermarket/accessibilities.csv")
+acc_with_loc <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-13/02-drt-1000-costs/analysis/accessibility/supermarket/accessibilities.csv")
 
-acc_without_loc <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-29-afternoon/drt-1500-const-mean-/analysis/accessibility/supermarket/accessibilities.csv")
+
+
+acc_without_loc <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-13/04-drt-1000-uniform-wait-time/analysis/accessibility/supermarket/accessibilities.csv")
 
 
 acc_merged <- acc_with_loc %>% full_join(acc_without_loc, by = c("id","time")) %>% 
@@ -608,3 +890,151 @@ ggsave("fig_policy_combined_hospital.png", plot = fig_policy_combined, width = w
 
 ```
 
+## SUPERMAREKT - REDO
+
+```{r}
+pois <- st_read("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/poi_2450.shp")
+
+
+# SUPERMARKET
+accessibility <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-28a-hosp-supa-othermodes/analysis/accessibility/supermarket/accessibilities.csv")
+
+# accessibility_drt <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-28c-hosp-supa-drt-1500-differentiated/analysis/accessibility/supermarket/accessibilities.csv")
+
+
+accessibility_drt_small <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-13/01-drt-1000/analysis/accessibility/supermarket/accessibilities.csv") %>% rename(estimatedDrt_accessibility_small = estimatedDrt_accessibility)
+accessibility_drt_large <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-13/02-drt-1000-costs/analysis/accessibility/supermarket/accessibilities.csv") %>% rename(estimatedDrt_accessibility_large = estimatedDrt_accessibility)
+
+accessibility_unified <- full_join(accessibility,accessibility_drt_small, by = c("id","time"))
+accessibility_unified <- full_join(accessibility_unified,accessibility_drt_large, by = c("id","time"))
+
+
+persons <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-17-base-accessibility/gunma.output_persons.csv.gz") %>%   left_join(gunma_shp_landuse %>% st_drop_geometry(), by = "zone")
+
+
+tmap_mode("view")
+
+persons_processed <- persons %>%
+  filter(!str_starts(person,"commuter")) %>% 
+  full_join(accessibility_unified,by = c("person" = "id")) %>% 
+  st_as_sf(coords = c("home_x","home_y"),crs=2450) %>%  
+  mutate(carAvail = replace_na(carAvail, "never")) %>% 
+  mutate(age_factor = case_when(age <18 ~ "0-17", age < 30 ~ "18-29", age <45 ~ "30-44", age <65 ~ "45-64", age <75 ~ "65-74", age < 85 ~ "75-84", .default = "85+")) %>% 
+    mutate(landuse = factor(landuse, levels = c("City","District"), labels = c("Urban", "Rural"))) %>% 
+  # Base 
+  mutate(base_max_accessibility = case_when(
+    carAvail == "never" ~ teleportedWalk_accessibility, 
+    .default = pmax(teleportedWalk_accessibility,car_accessibility))) %>% 
+  # Policy Safety: car unavailable over age 75
+  mutate(policy_safety_max_accessibility = case_when(
+    carAvail == "never" | age >=85 ~ teleportedWalk_accessibility, 
+    .default = pmax(teleportedWalk_accessibility,car_accessibility))) %>% 
+  # Policy Mobility : drt available over 75
+  mutate(policy_mobility_max_accessibility_large = case_when(
+    carAvail == "never" & age >=85 ~ pmax(teleportedWalk_accessibility, estimatedDrt_accessibility_large),
+    carAvail == "always" & age >=85 ~ pmax(teleportedWalk_accessibility, estimatedDrt_accessibility_large, car_accessibility),
+    carAvail == "never" ~ pmax(teleportedWalk_accessibility),
+    carAvail == "always" ~ pmax(teleportedWalk_accessibility, car_accessibility))) %>% 
+  mutate(policy_mobility_max_accessibility_small = case_when(
+    carAvail == "never" & age >=85 ~ pmax(teleportedWalk_accessibility, estimatedDrt_accessibility_small),
+    carAvail == "always" & age >=85 ~ pmax(teleportedWalk_accessibility, estimatedDrt_accessibility_small, car_accessibility),
+    carAvail == "never" ~ pmax(teleportedWalk_accessibility),
+    carAvail == "always" ~ pmax(teleportedWalk_accessibility, car_accessibility))) %>% 
+  # Policy Combined 
+  mutate(policy_combined_max_accessibility_large = case_when(
+     age >=85 ~ pmax(teleportedWalk_accessibility, estimatedDrt_accessibility_large),
+    carAvail == "never" ~ pmax(teleportedWalk_accessibility),
+    carAvail == "always" ~ pmax(teleportedWalk_accessibility, car_accessibility))) %>% 
+  # Policy Combined 
+  mutate(policy_combined_max_accessibility_small = case_when(
+     age >=85 ~ pmax(teleportedWalk_accessibility, estimatedDrt_accessibility_small),
+    carAvail == "never" ~ pmax(teleportedWalk_accessibility),
+    carAvail == "always" ~ pmax(teleportedWalk_accessibility, car_accessibility))) %>% 
+  
+    select(person,age_factor, sex, carAvail, executed_score,carAvail,landuse, starts_with("base"), starts_with("policy"))
+
+
+
+persons_processed_summarised <- persons_processed %>% 
+  st_drop_geometry() %>%
+  group_by(age_factor,sex) %>% 
+  summarise(base_max_accessibility = mean(base_max_accessibility), 
+            policy_safety_max_accessibility = mean(policy_safety_max_accessibility),
+            policy_mobility_max_accessibility_small = mean(policy_mobility_max_accessibility_small),
+            policy_mobility_max_accessibility_large = mean(policy_mobility_max_accessibility_large),
+            policy_combined_max_accessibility_small = mean(policy_combined_max_accessibility_small),
+            policy_combined_max_accessibility_large = mean(policy_combined_max_accessibility_large))
+  
+
+persons_processed_summarised %>% 
+  pivot_longer(c("base_max_accessibility",starts_with("policy")), names_to = "scenario", values_to = "accessibility") %>% 
+  filter(scenario == "base_max_accessibility" | age_factor == "85+") %>% 
+  mutate(scenario = factor(scenario, levels = c("base_max_accessibility","policy_safety_max_accessibility","policy_mobility_max_accessibility_small","policy_mobility_max_accessibility_large","policy_combined_max_accessibility_small","policy_combined_max_accessibility_large" ), labels = c("Base Case", "Policy\nSafety", "Policy\nMobility\nSmall","Policy\nMobility\nLarge",  "Policy\nCombined\nSmall","Policy\nCombined\nLarge"))) %>% 
+  ggplot() + geom_col(aes(age_factor,accessibility, fill = sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
+    panel.spacing.x = unit(0.8, "lines")
+  )
+
+# fig_supermarket_2000
+# 
+# ggsave(fig_supermarket_2000,width = 22, height = 10, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_2000.png")
+```
+```{r}
+accessibility_drt_small %>% left_join(accessibility_drt_large) %>% mutate(diff = estimatedDrt_accessibility_large - estimatedDrt_accessibility_small)
+```
+
+
+
+quick minicalculation for cba
+```{r}
+
+persons_processed %>% filter(age_factor == "85+") %>% summarise(base_max_accessibility = mean(base_max_accessibility),policy_safety_max_accessibility = mean(policy_safety_max_accessibility), policy_mobility_max_accessibility = mean(policy_mobility_max_accessibility),policy_combined_max_accessibility = mean(policy_combined_max_accessibility), n = n(), nCarAvail = sum(carAvail == "always"))
+
+```
+
+
+
+### urban / rural divide
+```{r}
+# by landuse
+persons_processed_summarised <- persons_processed %>% 
+  st_drop_geometry() %>%
+  group_by(age_factor,sex,landuse) %>% 
+  summarise(base_max_accessibility = mean(base_max_accessibility), 
+            policy_safety_max_accessibility = mean(policy_safety_max_accessibility),
+            policy_mobility_max_accessibility = mean(policy_mobility_max_accessibility),
+            policy_combined_max_accessibility = mean(policy_combined_max_accessibility)) 
+  
+
+xxx <- persons_processed_summarised %>% 
+  pivot_longer(c("base_max_accessibility",starts_with("policy")), names_to = "scenario", values_to = "accessibility") %>% 
+  filter(scenario == "base_max_accessibility" | age_factor == "85+") %>% 
+  mutate(scenario = factor(scenario, levels = c("base_max_accessibility","policy_safety_max_accessibility","policy_mobility_max_accessibility","policy_combined_max_accessibility"), labels = c("Base Case", "Policy\nSafety", "Policy\nMobility", "Policy\nCombined"))) %>% 
+  mutate(Sex = factor(sex, levels = c("f","m"), labels = c("Female","Male")))
+
+
+fig_urban <- ggplot(xxx %>% filter(landuse == "Urban")) + geom_col(aes(age_factor,accessibility, fill = Sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
+    panel.spacing.x = unit(0.8, "lines")
+  ) + ylim(-11,4) + theme(legend.position = "bottom")
+   
+  
+fig_rural <- ggplot(xxx %>% filter(landuse == "Rural")) + geom_col(aes(age_factor,accessibility, fill = Sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
+    panel.spacing.x = unit(0.8, "lines")
+  ) + ylim(-11,4)+ theme(legend.position = "bottom")
+  
+
+fig_urban
+fig_rural
+
+ggsave(fig_urban,width = 22, height = 15, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_1500_urban.png")
+
+ggsave(fig_rural,width = 22, height = 15, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_1500_rural.png")
+
+# fig_supermarket_2000
+# 
+# ggsave(fig_supermarket_2000,width = 22, height = 10, unit = "cm", filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_access_supermarket_2000.png")
+
+
+```
