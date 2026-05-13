@@ -29,8 +29,9 @@ PLANS_FINAL := $(p)/gunma-$V-$Spct-plans.xml.gz
 FACILITIES_FINAL := $(p)/gunma-$V-$Spct-facilities.xml.gz
 CONFIG_FINAL := $(p)/gunma-$V-config.xml
 VEHICLES_FINAL := $(p)/gunma-$V-vehicleTypes.xml
+ROAD_COUNTS := $(p)/gunma-$V-counts-jartic.xml.gz
 
-
+roadcounts: $(ROAD_COUNTS)
 network: $(NETWORK_FINAL)
 vehicles : $(VEHICLES_FINAL)
 plans: $(PLANS_FINAL)
@@ -96,7 +97,8 @@ $(NETWORK_OSM): $(gunma)/raw/01_shapefiles/osm_pbf_geofabrik/japan-260210.osm.pb
 NETWORK_SUMO := $(p)/b2_sumo.net.xml
 $(NETWORK_SUMO): $(NETWORK_OSM)
 	$(SUMO_HOME)/bin/netconvert --geometry.remove --ramps.guess --ramps.no-split\
-	 --type-files $(SUMO_HOME)/data/typemap/osmNetconvert.typ.xml\
+#	 --type-files $(SUMO_HOME)/data/typemap/osmNetconvert.typ.xml\
+	 --type-files input/osmNetconvertJapan.typ.xml\
 	 --tls.guess-signals true --tls.discard-simple --tls.join --tls.default-type actuated\
 	 --junctions.join --junctions.corner-detail 5\
 	 --roundabouts.guess --remove-edges.isolated\
@@ -264,8 +266,7 @@ $(PLANS_EXP): $(p)/gunma-$V-config.xml $(PLANS_LOCS) $(FACILITIES_FULL) $(VEHICL
 
 # 10) Create the counts file required for location choice
 
-ROAD_COUNTS := $(p)/gunma-$V-counts-jartic.xml.gz
-xxx: $(ROAD_COUNTS)
+
 $(p)/gunma-$V-counts-mlit.xml.gz: $(gunma)/processed/roadcounts/matsim_linkId_to_roadcounts.csv
 	$(sc) prepare counts-from-mlit --input $< --output $@
 

@@ -346,9 +346,14 @@ public class OpenGunmaScenario extends MATSimApplication {
 
 	@Override
 	protected void prepareScenario(Scenario scenario) {
+
 		if (removePt) {
 			removePtFromScenario(scenario);
 		}
+
+		// reduce network capacity based on freight:
+		// todo: freight takes up more capacity; consider reducing futher.
+		reduceNetworkCapacityForFreight(scenario);
 
 
 		if (policyCase == PolicyCase.noCarAvailOver75policy || policyCase == PolicyCase.noCarAvailOver75base) {
@@ -459,6 +464,27 @@ public class OpenGunmaScenario extends MATSimApplication {
 		}
 
 
+	}
+
+	private static void reduceNetworkCapacityForFreight(Scenario scenario) {
+		double freightPct = 1.0 - 0.8757594;
+		for (Link link : scenario.getNetwork().getLinks().values()) {
+			if (link.getAllowedModes().contains(TransportMode.car)) {
+				if (link.getAttributes().getAttribute("type").toString().contains("highway.residential") ||
+					link.getAttributes().getAttribute("type").toString().contains("highway.living_street")) {
+//					do not adapt capacity for residential streets
+
+				} else if (link.getAttributes().getAttribute("type").toString().contains("primary") ||
+					link.getAttributes().getAttribute("type").toString().contains("trunk") ||
+					link.getAttributes().getAttribute("type").toString().contains("motorway")) {
+//					As the available count stations are located on the above roadTypes, for trunk, primary and motorway road types the full 10.29% are applied
+					link.setCapacity(link.getCapacity() - link.getCapacity() * freightPct);
+				} else {
+//					for all other road types it is assumed that freightPct might not be as high as on the above roadtypes
+					link.setCapacity(link.getCapacity() - link.getCapacity() * (freightPct - 0.03));
+				}
+			}
+		}
 	}
 
 	private void removeCarAvailabilityByAge(Scenario scenario, int age) {

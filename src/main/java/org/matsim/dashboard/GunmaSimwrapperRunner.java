@@ -128,15 +128,15 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 			trafficCountsDashboard.withCountsPath("input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-counts-jartic.xml.gz");
 			trafficCountsDashboard.withModes(TransportMode.car, Set.of(TransportMode.car));
 
-			OverviewDashboard overview = new OverviewDashboard();
-			sw.addDashboard(overview);
-			sw.addDashboard(facilities);
-			sw.addDashboard(populationAttributeDashboard);
-			sw.addDashboard(activityDashboard);
-			sw.addDashboard(odTripDashboard);
-			sw.addDashboard(aggregateODDashboardGunma);
-			sw.addDashboard(trips);
-			sw.addDashboard(trafficDashboard);
+//			OverviewDashboard overview = new OverviewDashboard();
+//			sw.addDashboard(overview);
+//			sw.addDashboard(facilities);
+//			sw.addDashboard(populationAttributeDashboard);
+//			sw.addDashboard(activityDashboard);
+//			sw.addDashboard(odTripDashboard);
+//			sw.addDashboard(aggregateODDashboardGunma);
+//			sw.addDashboard(trips);
+//			sw.addDashboard(trafficDashboard);
 			sw.addDashboard(trafficCountsDashboard);
 			try {
 				//replace existing dashboards
