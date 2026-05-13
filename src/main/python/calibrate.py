@@ -61,7 +61,7 @@ study, obj = create_calibration(
     "calib",
     ASCCalibrator(modes, initial, target, lr=utils.linear_scheduler(start=0.3, interval=15)),
     "matsim-gunma-1.x-SNAPSHOT.jar",
-    "input/v1.6/gunma-v1.6-config.xml",
+    "input/v1.7/gunma-v1.7-config.xml",
     args="--1pct",
     jvm_args="-Xmx55G -Xms55G -XX:+AlwaysPreTouch -XX:+UseParallelGC",
     transform_persons=filter_persons,

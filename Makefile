@@ -1,5 +1,5 @@
 JAR := matsim-gunma-*.jar
-V := v1.6
+V := v1.7
 
 p := input/$V
 gunma := ../shared-svn/projects/matsim-gunma/data
