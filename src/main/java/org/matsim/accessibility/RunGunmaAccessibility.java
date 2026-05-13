@@ -128,6 +128,7 @@ public final class RunGunmaAccessibility {
 //		createDashboard(mapCenterString);
 	}
 
+	@SuppressWarnings("checkstyle:JavaNCSS")
 	private static void calculateAccessibility() throws IOException {
 		AccessibilityConfigGroup accConfig = new AccessibilityConfigGroup();
 
@@ -151,10 +152,7 @@ public final class RunGunmaAccessibility {
 
 		accConfig.setTileSize_m(500);
 
-
 		accConfig.setTimeOfDay(8 * 3600.);
-
-
 
 		for (Modes4Accessibility mode : Modes4Accessibility.values()) {
 			accConfig.setComputingAccessibilityForMode(mode, accModes.contains(mode));
@@ -286,7 +284,7 @@ public final class RunGunmaAccessibility {
 			.setBoundingBoxLeft(minX).setBoundingBoxRight(maxX);
 
 		DrtEstimator drtEstimator;
-		if(drtDifferentiated){
+		if (drtDifferentiated){
 
 			List<SimpleFeature> zonesToWaitTimes = drtWaitShp.readFeatures();
 			drtEstimator = new DirectTripBasedDrtEstimator.Builder()
@@ -306,11 +304,6 @@ public final class RunGunmaAccessibility {
 				.build();
 
 		}
-
-
-
-
-
 
 		AccessibilityFromEvents.Builder builder = new AccessibilityFromEvents.Builder(scenario, eventsFile, relevantPois);
 		builder.setDrtEstimator(drtEstimator);

@@ -19,7 +19,6 @@ import org.matsim.core.scenario.ScenarioUtils;
 import org.matsim.facilities.MatsimFacilitiesReader;
 import org.matsim.prepare.population.Attributes;
 import tech.tablesaw.api.DoubleColumn;
-import tech.tablesaw.api.IntColumn;
 import tech.tablesaw.api.StringColumn;
 import tech.tablesaw.api.Table;
 

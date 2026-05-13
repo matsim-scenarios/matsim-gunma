@@ -52,14 +52,14 @@ public final class PreparePoisInput {
 		// 1) ADD SHINKANSEN STATIONS
 		// remember to switch what you see in OSM, because they do northing (y) and then easting (x)
 		ActivityOption shinkansenAO = aff.createActivityOption("shinkansen");
-		ActivityFacility takasaki = aff.createActivityFacility(Id.create("Takasaki", ActivityFacility.class), new Coord(46039.3,35878.2));
+		ActivityFacility takasaki = aff.createActivityFacility(Id.create("Takasaki", ActivityFacility.class), new Coord(46039.3, 35878.2));
 		takasaki.addActivityOption(shinkansenAO);
 		scenario.getActivityFacilities().addActivityFacility(takasaki);
 
 
 //		36.69337040985355, 138.97751416820984
 //		77018.98,42675.85
-		ActivityFacility jomoKogen = aff.createActivityFacility(Id.create("Jōmō-Kōgen", ActivityFacility.class), new Coord(42678.01,77005.12));
+		ActivityFacility jomoKogen = aff.createActivityFacility(Id.create("Jōmō-Kōgen", ActivityFacility.class), new Coord(42678.01, 77005.12));
 		jomoKogen.addActivityOption(shinkansenAO);
 		scenario.getActivityFacilities().addActivityFacility(jomoKogen);
 
@@ -104,8 +104,6 @@ public final class PreparePoisInput {
 		}
 
 		new FacilitiesWriter(scenario.getActivityFacilities()).write(poisXml.toString());
-
-		System.out.println("Done");
 
 	}
 

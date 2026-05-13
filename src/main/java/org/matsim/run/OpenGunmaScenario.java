@@ -55,7 +55,6 @@ import org.matsim.prepare.population.Attributes;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 import picocli.CommandLine;
 
-import java.io.File;
 import java.net.URL;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -353,25 +352,12 @@ public class OpenGunmaScenario extends MATSimApplication {
 
 
 		if (policyCase == PolicyCase.noCarAvailOver75policy || policyCase == PolicyCase.noCarAvailOver75base) {
-			for (Person person : scenario.getPopulation().getPersons().values()) {
-				if (person.getId().toString().startsWith("gunma_")) {
-					if (PersonUtils.getAge(person) >= 75) {
-
-						if (policyCase == PolicyCase.noCarAvailOver75policy) {
-							PersonUtils.setCarAvail(person, "never");
-						}
-
-						PersonUtils.removeUnselectedPlans(person);
-						replaceModeLegsWithOtherMode(person.getSelectedPlan(), Set.of(TransportMode.car), TransportMode.walk);
-
-					}
-				}
-			}
+			removeCarAvailabilityByAge(scenario, 75);
 		} else if (policyCase == PolicyCase.drtOnlyAsTaxi || policyCase == PolicyCase.drtOnly) {
 
 
 			String targetMode;
-			if(policyCase == PolicyCase.drtOnlyAsTaxi){
+			if (policyCase == PolicyCase.drtOnlyAsTaxi) {
 				targetMode = TransportMode.taxi;
 			} else {
 				targetMode = TransportMode.drt;
@@ -392,7 +378,7 @@ public class OpenGunmaScenario extends MATSimApplication {
 				Attributes.JIS_ZONE_FIELD
 			);
 
-			for(Person person : scenario.getPopulation().getPersons().values()) {
+			for (Person person : scenario.getPopulation().getPersons().values()) {
 				Plan plan = person.getSelectedPlan();
 
 				final List<PlanElement> planElements = plan.getPlanElements();
@@ -409,7 +395,6 @@ public class OpenGunmaScenario extends MATSimApplication {
 						findFirst();
 
 
-
 					// Replaces all trip elements and inserts single leg
 					final List<PlanElement> fullTrip =
 						planElements.subList(
@@ -423,7 +408,7 @@ public class OpenGunmaScenario extends MATSimApplication {
 
 					// origin and destination should be in gunma for taxi trip to be activated
 
-					if (!originZone.startsWith("10") || !destinationZone.startsWith("10") || cleanLeg.isEmpty()){
+					if (!originZone.startsWith("10") || !destinationZone.startsWith("10") || cleanLeg.isEmpty()) {
 						continue;
 					}
 
@@ -476,8 +461,25 @@ public class OpenGunmaScenario extends MATSimApplication {
 
 	}
 
+	private void removeCarAvailabilityByAge(Scenario scenario, int age) {
+		for (Person person : scenario.getPopulation().getPersons().values()) {
+			if (person.getId().toString().startsWith("gunma_")) {
+				if (PersonUtils.getAge(person) >= age) {
 
-	String findZone(Activity act, Person person, Scenario scenario, ShpOptions.Index jisIndex) {
+					if (policyCase == PolicyCase.noCarAvailOver75policy) {
+						PersonUtils.setCarAvail(person, "never");
+					}
+
+					PersonUtils.removeUnselectedPlans(person);
+					replaceModeLegsWithOtherMode(person.getSelectedPlan(), Set.of(TransportMode.car), TransportMode.walk);
+
+				}
+			}
+		}
+	}
+
+
+	final String findZone(Activity act, Person person, Scenario scenario, ShpOptions.Index jisIndex) {
 
 		String zone = null;
 		if (act.getType().startsWith("home")) {
