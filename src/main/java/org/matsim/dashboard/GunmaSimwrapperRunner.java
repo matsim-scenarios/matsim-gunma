@@ -65,6 +65,7 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 			GunmaTripDashboard trips = new GunmaTripDashboard("resources/mode_share_ref.csv", "resources/mode_share_per_dist_ref.csv", "resources/mode_users_ref.csv")
 				.withDistanceDistribution("resources/mode_share_distance_distribution.csv")
 				.setAnalysisArgs("--match-id", "^gunma.+", "--shp-filter", "none")
+				.withGroupedRefData("resources/mode_share_per_group_dist_ref.csv", "age")
 				.withChoiceEvaluation(false);
 
 
@@ -128,16 +129,16 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 			trafficCountsDashboard.withCountsPath("input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-counts-jartic.xml.gz");
 			trafficCountsDashboard.withModes(TransportMode.car, Set.of(TransportMode.car));
 
-//			OverviewDashboard overview = new OverviewDashboard();
+			OverviewDashboard overview = new OverviewDashboard();
 //			sw.addDashboard(overview);
 //			sw.addDashboard(facilities);
 //			sw.addDashboard(populationAttributeDashboard);
 //			sw.addDashboard(activityDashboard);
 //			sw.addDashboard(odTripDashboard);
 //			sw.addDashboard(aggregateODDashboardGunma);
-//			sw.addDashboard(trips);
+			sw.addDashboard(trips);
 //			sw.addDashboard(trafficDashboard);
-			sw.addDashboard(trafficCountsDashboard);
+//			sw.addDashboard(trafficCountsDashboard);
 			try {
 				//replace existing dashboards
 				boolean append = false;

@@ -10,7 +10,10 @@ download necessary files
 
 ```{bash}
 
-foldername="2026-03-12d-calibration-03_30"
+# foldername="2026-03-12d-calibration-03_30"
+
+foldername="2026-05-15b-calibration-1pct-0.02-20"
+
 
 cluster_dir="mc:/net/ils/rehmann/matsim-gunma/$foldername"
 local_dir="$foldername"
@@ -36,7 +39,9 @@ library(yaml)
 # local_dir <- "2026-03-12a-calibration-03_15"
 # local_dir <- "2026-03-12b-calibration-01_15" #5 okay
 # local_dir <- "2026-03-12c-calibration-01_30"
-local_dir <- "2026-03-12d-calibration-03_30"
+# local_dir <- "2026-03-12d-calibration-03_30"
+
+local_dir <- "2026-05-15b-calibration-1pct-0.02-20"
 
 
 # local_dir <- "tmp"
@@ -78,7 +83,7 @@ df_mode <- map_dfr(seq_along(mode_stats), \(runNum)
     mutate(run = runNum - 1)
 )
 
-dot_pos <- 5
+dot_pos <- 2
 goal <-  data.frame(mode = c("bike", "car","ride","walk"), run = c(dot_pos,dot_pos,dot_pos,dot_pos), share = c(0.086,0.682,0.115,0.117))
 
 df_mode %>% 

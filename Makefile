@@ -20,8 +20,8 @@ $(JAR):
 	mvn package
 
 
-S := 1
-X := 0.01
+S := 10
+X := 0.1
 
 
 NETWORK_FINAL := $(p)/gunma-$V-network.xml.gz
@@ -94,11 +94,12 @@ $(NETWORK_OSM): $(gunma)/raw/01_shapefiles/osm_pbf_geofabrik/japan-260210.osm.pb
 # Uses netconvert to create a SUMO network from the OSM file. We use the same parameters as in the Berlin scenario
 # We also reproject the network to a local coordinate system (EPSG:2450),
 # We also keep all attributes from OSM, which we will use later for filtering and for the location choice model.
+#	 --type-files $(SUMO_HOME)/data/typemap/osmNetconvert.typ.xml\
+
 NETWORK_SUMO := $(p)/b2_sumo.net.xml
 $(NETWORK_SUMO): $(NETWORK_OSM)
 	$(SUMO_HOME)/bin/netconvert --geometry.remove --ramps.guess --ramps.no-split\
-#	 --type-files $(SUMO_HOME)/data/typemap/osmNetconvert.typ.xml\
-	 --type-files input/osmNetconvertJapan.typ.xml\
+	 --type-files /Users/jakob/git/matsim-gunma/input/osmNetconvertJapan.typ.xml\
 	 --tls.guess-signals true --tls.discard-simple --tls.join --tls.default-type actuated\
 	 --junctions.join --junctions.corner-detail 5\
 	 --roundabouts.guess --remove-edges.isolated\

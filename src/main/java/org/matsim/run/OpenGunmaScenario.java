@@ -173,6 +173,8 @@ public class OpenGunmaScenario extends MATSimApplication {
 	protected Config prepareConfig(Config config) {
 		// general
 
+
+//		ConfigUtils.addOrGetModule(config,SBB)
 		config.controller().setLastIteration(500);
 		config.vspExperimental().setVspDefaultsCheckingLevel(VspExperimentalConfigGroup.VspDefaultsCheckingLevel.warn);
 

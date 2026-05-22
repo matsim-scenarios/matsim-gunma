@@ -476,15 +476,17 @@ trips_processed  %>%
 # TRIP BASED MODAL SPLIT, grouped into mode and sit group. 
 # sum of share column = 1 
 # resources/mode_share_ref.csv
-trips_processed %>%
+trip_based_modal_split <- trips_processed %>%
   group_by(mode,dist_group) %>% 
   summarise(n = n(), dist = sum(dist, na.rm = TRUE)) %>% 
   filter(!is.na(mode)) %>%
   ungroup() %>%
   mutate(share_trips = n/sum(n), share_dist = dist/sum(dist)) %>% 
   select(dist_group, main_mode = mode, share = share_trips, share_dist) %>% 
-  arrange(dist_group) %>% 
-  write_csv("resources/mode_share_ref.csv")
+  arrange(dist_group)
+
+
+trip_based_modal_split %>%   write_csv("resources/mode_share_ref.csv")
 
 # TRIP BASED MODAL SPLIT, again grouped into mode and dist_group. However, this time the mode shares in each distance group add up to 1.0. This is used for the simwrapper plot row 2 - right. 
 # resources/mode_share_per_dist_ref.csv
@@ -534,7 +536,36 @@ trips_processed %>%
 
 ```
 
-# Explaratory Analysis
+### Modal Split by Age and Distance class
+```{r}
+
+
+# TRIP BASED MODAL SPLIT, grouped into mode and sit group. 
+# sum of share column = 1 
+# resources/mode_share_ref.csv
+trips_processed %>%
+    mutate(age_factor = case_when(
+    age >= 85 ~ "85+",
+    age >= 75 ~ "75 - 84",
+    age >= 65 ~ "65 - 74",
+    age >= 45 ~ "45 - 64",
+    age >= 30 ~ "30 - 44",
+    age >= 18 ~ "18 - 29",
+    .default = "0 - 17")
+    ) %>% 
+  group_by(mode,dist_group,age_factor) %>% 
+  summarise(n = n()) %>% 
+  filter(!is.na(mode)) %>%
+  ungroup() %>%
+  complete(mode, dist_group, age_factor, fill = list(n = 0)) %>% 
+  mutate(share_trips = n/sum(n)) %>% 
+  select(age = age_factor, dist_group, main_mode = mode, share = share_trips) %>% bind_rows(trip_based_modal_split %>% select(-share_dist) %>% mutate(age = "")) %>% 
+  arrange(age,dist_group) %>% 
+  write_csv("resources/mode_share_per_group_dist_ref.csv")
+```
+  
+
+# Exploratory Analysis
 
 ### Modal Split by Age
 ```{r}

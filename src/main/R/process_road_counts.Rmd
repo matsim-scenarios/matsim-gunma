@@ -258,10 +258,14 @@ names(road_counts) <- col_dict[names(road_counts)]
 ```{r}
 
 road_counts_heavy_vs_light <- road_counts %>%
-  mutate(shortNo = traffic_section_id) %>% select(shortNo, vehicle_type, vehicle_type,traffic_12h_total, -traffic_section_id) %>%
+  mutate(shortNo = traffic_section_id) %>% select(shortNo, vehicle_type,traffic_12h_total, -traffic_section_id) %>%
   group_by(shortNo,vehicle_type) %>%
   summarise(across(where(is.numeric), mean, na.rm = TRUE)) %>%
-  pivot_wider(names_from = vehicle_type, values_from = traffic_12h_total) %>%   mutate(light_vehicle_share = sum(`1`)/sum(`1` + `2`)) %>% select(shortNo,light_vehicle_share)
+  pivot_wider(names_from = vehicle_type, values_from = traffic_12h_total) %>%   mutate(light_vehicle_share = sum(`1`)/sum(`1` + `2`)) %>% 
+    # ungroup() %>% summarise(light_vehicle_share = sum(`1`)/sum(`1` + `2`)) %>% view()
+  select(shortNo,light_vehicle_share)
+
+
 ```
 
 
@@ -303,17 +307,17 @@ Read and convert MATSim geometries
 ```{r}
 # 
 # # Read the CSV
-# matsim_network_geos_raw <- read.csv("input/v1.6/b3_network-linkGeometries.csv", stringsAsFactors = FALSE)
-# 
+matsim_network_geos_raw <- read.csv("input/v1.6/b3_network-linkGeometries.csv", stringsAsFactors = FALSE)
+
 # # Read MATSim Network, so as to only keep match links that are actually present in the network:
-# matsim_cleaned_network <- matsim::read_network("input/v1.6/gunma-v1.6-network.xml.gz")
-# 
-# ids_matsim_cleaned_network <- matsim_cleaned_network$links %>% 
-#   filter(!type %in% c("highway.path","highway.cycleway","highway.residential")) %>%  pull(id)
+matsim_cleaned_network <- matsim::read_network("input/v1.6/gunma-v1.6-network.xml.gz")
+
+ids_matsim_cleaned_network <- matsim_cleaned_network$links %>%
+  filter(!type %in% c("highway.path","highway.cycleway","highway.residential")) %>%  pull(id)
 # 
 # # filter geometries to only include those
 # 
-# matsim_network_geos <- matsim_network_geos_raw %>% filter(LinkId %in% ids_matsim_cleaned_network)
+matsim_network_geos <- matsim_network_geos_raw %>% filter(LinkId %in% ids_matsim_cleaned_network)
 # 
 # # Function to convert the Geometry column into a MULTILINESTRING
 # parse_multilinestring <- function(geom_str) {
@@ -348,7 +352,7 @@ Read and convert MATSim geometries
 # saveRDS(matsim_network_geos_sf_filtered, "../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf_filtered.rds")
 # 
 # 
-# matsim_network_geos_sf <- readRDS("../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf.rds")
+matsim_network_geos_sf <- readRDS("../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf.rds")
 matsim_network_geos_sf_filtered <- readRDS("../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_network_geos_sf_filtered.rds")
 
 
@@ -655,7 +659,8 @@ final <- jartic_data_filtered2 %>%
   mutate(hourly_volume_light = hourly_volume * light_vehicle_share) %>% 
   ungroup() %>% 
   select(LinkId = matsim_id, time = hour, count = hourly_volume_light) %>% 
-  mutate(time = case_when(time <= 9 ~ paste0("traffic_0",time,"h"), .default = paste0("traffic_",time,"h")))
+  mutate(time = case_when(time <= 9 ~ paste0("traffic_0",time,"h"), .default = paste0("traffic_",time,"h"))) %>% 
+  mutate(count = count * .75)
 
 write_csv(final,"../shared-svn/projects/matsim-gunma/data/processed/roadcounts/matsim_linkId_to_roadcounts_jartic.csv")
 

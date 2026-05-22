@@ -30,9 +30,9 @@ from matsim.calibration import create_calibration, ASCCalibrator, utils, analysi
 modes = ["walk", "car", "bike"]
 fixed_mode = "walk"
 initial = {
-    "bike": -1.2,
-    "car": -0.5,
-    "ride": -1.3,
+    "bike": -1.432778,
+    "car": -0.847163,
+    "ride": -1.652781,
 }
 
 # Target (Trip-Based?) Mode Share
@@ -59,7 +59,7 @@ def filter_modes(df):
 
 study, obj = create_calibration(
     "calib",
-    ASCCalibrator(modes, initial, target, lr=utils.linear_scheduler(start=0.3, interval=15)),
+    ASCCalibrator(modes, initial, target, lr=utils.linear_scheduler(start=0.3, interval=30)),
     "matsim-gunma-1.x-SNAPSHOT.jar",
     "input/v1.7/gunma-v1.7-config.xml",
     args="--1pct",
