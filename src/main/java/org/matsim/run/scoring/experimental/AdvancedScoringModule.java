@@ -7,6 +7,7 @@ import org.matsim.core.controler.AbstractModule;
 import org.matsim.core.scoring.PseudoRandomScoringModule;
 import org.matsim.core.scoring.functions.ScoringParametersForPerson;
 import org.matsim.run.scoring.TransitRouteToMode;
+//import org.matsim.run.scoring.TransitRouteToMode;
 
 /**
  * Module to bind components needed for advanced scoring functionality configured by {@link AdvancedScoringConfigGroup}.

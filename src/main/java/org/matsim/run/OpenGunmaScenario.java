@@ -174,6 +174,10 @@ public class OpenGunmaScenario extends MATSimApplication {
 		// general
 
 
+		config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.deleteDirectoryIfExists);
+
+//		ConfigUtils.addOrGetModule(config, AdvancedScoringConfigGroup.class);
+
 //		ConfigUtils.addOrGetModule(config,SBB)
 		config.controller().setLastIteration(500);
 		config.vspExperimental().setVspDefaultsCheckingLevel(VspExperimentalConfigGroup.VspDefaultsCheckingLevel.warn);
@@ -353,6 +357,7 @@ public class OpenGunmaScenario extends MATSimApplication {
 			removePtFromScenario(scenario);
 		}
 
+
 		// reduce network capacity based on freight:
 		// todo: freight takes up more capacity; consider reducing futher.
 		reduceNetworkCapacityForFreight(scenario);
@@ -528,6 +533,14 @@ public class OpenGunmaScenario extends MATSimApplication {
 
 	@Override
 	protected void prepareControler(Controler controler) {
+
+
+//		// AdvancedScoring can be used for experiments or calibration, but is not needed to run the calibrated scenario.
+//		if (ConfigUtils.hasModule(controler.getConfig(), AdvancedScoringConfigGroup.class)) {
+//			controler.addOverridingModule(new AdvancedScoringModule());
+//			controler.getConfig().scoring().setExplainScores(true);
+//		}
+
 
 		if ( policyCase == PolicyCase.drtOnlyAsTaxi) {
 

@@ -130,15 +130,15 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 			trafficCountsDashboard.withModes(TransportMode.car, Set.of(TransportMode.car));
 
 			OverviewDashboard overview = new OverviewDashboard();
-//			sw.addDashboard(overview);
+			sw.addDashboard(overview);
 //			sw.addDashboard(facilities);
-//			sw.addDashboard(populationAttributeDashboard);
-//			sw.addDashboard(activityDashboard);
-//			sw.addDashboard(odTripDashboard);
-//			sw.addDashboard(aggregateODDashboardGunma);
+			sw.addDashboard(populationAttributeDashboard);
+			sw.addDashboard(activityDashboard);
+			sw.addDashboard(odTripDashboard);
+			sw.addDashboard(aggregateODDashboardGunma);
 			sw.addDashboard(trips);
 //			sw.addDashboard(trafficDashboard);
-//			sw.addDashboard(trafficCountsDashboard);
+			sw.addDashboard(trafficCountsDashboard);
 			try {
 				//replace existing dashboards
 				boolean append = false;
