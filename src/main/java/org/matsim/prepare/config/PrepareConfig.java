@@ -5,7 +5,7 @@ import org.matsim.contrib.vsp.scoring.RideScoringParamsFromCarParams;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.config.groups.*;
-import org.matsim.run.OpenGunmaDefaults;
+import org.matsim.run.GunmaDefaults;
 
 import java.util.List;
 import java.util.Map;
@@ -26,7 +26,7 @@ public final class PrepareConfig {
 
 		// ############
 		// global
-		config.global().setCoordinateSystem(OpenGunmaDefaults.CRS);
+		config.global().setCoordinateSystem(GunmaDefaults.CRS);
 		config.global().setInsistingOnDeprecatedConfigVersion(false);
 		config.global().setNumberOfThreads(16);
 
@@ -42,23 +42,23 @@ public final class PrepareConfig {
 
 		// ############
 		// network
-		config.network().setInputFile(OpenGunmaDefaults.networkFile());
+		config.network().setInputFile(GunmaDefaults.networkFile());
 
 		// ############
 		// facilities
-		config.facilities().setInputFile(OpenGunmaDefaults.facilitiesFile());
+		config.facilities().setInputFile(GunmaDefaults.facilitiesFile());
 		config.facilities().setFacilitiesSource(FacilitiesConfigGroup.FacilitiesSource.fromFile);
 
 		// ############
 		//plans
 		config.plans().setRemovingUnneccessaryPlanAttributes(true);
-		config.plans().setInputFile(OpenGunmaDefaults.plansFile());
+		config.plans().setInputFile(GunmaDefaults.plansFile());
 
 
 		// ############
 		// vehicle type
 		config.qsim().setVehiclesSource(QSimConfigGroup.VehiclesSource.modeVehicleTypesFromVehiclesData);
-		config.vehicles().setVehiclesFile(OpenGunmaDefaults.vehicleTypesFile());
+		config.vehicles().setVehiclesFile(GunmaDefaults.vehicleTypesFile());
 
 		// ############
 		// qsim
@@ -148,7 +148,7 @@ public final class PrepareConfig {
 		RideScoringParamsFromCarParams.setRideScoringParamsBasedOnCarParams(config.scoring(), 1.0);
 
 		// write config
-		ConfigUtils.writeConfig(config, OpenGunmaDefaults.configPath());
+		ConfigUtils.writeConfig(config, GunmaDefaults.configPath());
 
 	}
 

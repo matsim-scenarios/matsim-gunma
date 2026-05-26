@@ -14,7 +14,7 @@ osmosis := osmosis
 SUMO_HOME := /Users/jakob/sumo
 
 # Scenario creation tool
-sc := java -Xms$(MEMORY) -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.prepare.OpenGunmaPreparation
+sc := java -Xms$(MEMORY) -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.prepare.GunmaPreparationScenario
 
 $(JAR):
 	mvn package
@@ -42,16 +42,11 @@ facilities: $(FACILITIES_FINAL)
 ### A) CONFIG
 ###############################################################
 
-# 1) Change VERSION in OpenGunmaScenario
+# 1) Change VERSION in GunmaDefaults
 # 2) make empty directory in input matching VERSION
 # 3) Run PrepareConfig
 # 4) Change Version at top of this file
 # 5) Change version in calibrate.py
-
-#$(p)/gunma-$V-config.xml: $(gunma)/raw/matsim_inputs_lichen_luo/config_simulation.xml
-#	$(sc) prepare prepare-config\
-#    	 --input $<\
-#    	 --output $@
 
 ###############################################################
 ### B) NETWORK
@@ -349,12 +344,11 @@ $(FACILITIES_FINAL): $(FACILITIES_FULL) $(PLANS_FINAL)
 # - env
 # - run
 
-# Calibration runtime is now org.matsim.run.RunOpenGunmaCalibrationScenario.
-# Base runs use org.matsim.run.RunOpenGunmaScenario and policy runs use
-# org.matsim.run.RunOpenGunmaPolicyScenario.
+# Calibration runtime is now org.matsim.run.GunmaCalibrationScenario.
+# Base runs use org.matsim.run.GunmaScenario and policy runs use
+# org.matsim.run.GunmaPolicyScenario.
 
 #### DASHBOARD
 output/dashboard-1.yaml:
 	$(sc) prepare gunma-dashboard output/
-
 

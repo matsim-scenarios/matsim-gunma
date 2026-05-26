@@ -17,7 +17,7 @@ import org.matsim.core.scenario.ProjectionUtils;
 import org.matsim.core.utils.geometry.CoordinateTransformation;
 import org.matsim.core.utils.geometry.geotools.MGC;
 import org.matsim.core.utils.geometry.transformations.GeotoolsTransformation;
-import org.matsim.run.OpenGunmaScenario;
+import org.matsim.run.GunmaBaseScenario;
 import picocli.CommandLine;
 import tech.tablesaw.api.ColumnType;
 import tech.tablesaw.api.Row;
@@ -178,7 +178,7 @@ public class CreateGunmaCommuterPopulation implements MATSimAppCommand {
 
 //					continue;
 				}
-				Coord coord = ct.transform(sampleHomeCoordinate(geom, OpenGunmaScenario.CRS, facilities, rnd, 1500));
+				Coord coord = ct.transform(sampleHomeCoordinate(geom, GunmaBaseScenario.CRS, facilities, rnd, 1500));
 				person.getAttributes().putAttribute(Attributes.HOME_X, coord.getX());
 				person.getAttributes().putAttribute(Attributes.HOME_Y, coord.getY());
 				person.getAttributes().putAttribute(Attributes.COMMUTE_TO, to);
@@ -193,7 +193,7 @@ public class CreateGunmaCommuterPopulation implements MATSimAppCommand {
 		log.info("Generated {} persons", population.getPersons().size());
 		PopulationUtils.sortPersons(population);
 
-		ProjectionUtils.putCRS(population, OpenGunmaScenario.CRS);
+		ProjectionUtils.putCRS(population, GunmaBaseScenario.CRS);
 		PopulationUtils.writePopulation(population, output.toString());
 
 		return 0;

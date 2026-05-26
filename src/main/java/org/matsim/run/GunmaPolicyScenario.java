@@ -56,25 +56,36 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Random;
 import java.util.Set;
+import java.util.SplittableRandom;
 import java.util.stream.Collectors;
 
+/**
+ * Scenario variant for policy and intervention experiments.
+ *
+ * <p>This class extends the shared Gunma base scenario with policy switches such as vehicle
+ * availability changes and DRT or taxi-only experiments.
+ */
 @CommandLine.Command(
-	header = ":: Open Gunma Policy Scenario ::",
-	version = OpenGunmaDefaults.VERSION,
+	header = ":: Gunma Policy Scenario ::",
+	version = GunmaDefaults.VERSION,
 	mixinStandardHelpOptions = true,
 	showDefaultValues = true
 )
-public class OpenGunmaPolicyScenario extends OpenGunmaScenario {
+public class GunmaPolicyScenario extends GunmaBaseScenario {
 
 	@CommandLine.Option(names = "--policy-case", description = "Which policy case to use", required = true)
 	private PolicyCase policyCase;
 
 	private Set<Id<Link>> filteredLinkIds;
 
+	/**
+	 * Runs the policy scenario from the command line.
+	 *
+	 * @param args command-line arguments
+	 */
 	public static void main(String[] args) {
-		MATSimApplication.run(OpenGunmaPolicyScenario.class, args);
+		MATSimApplication.run(GunmaPolicyScenario.class, args);
 	}
 
 	@Override
@@ -88,7 +99,7 @@ public class OpenGunmaPolicyScenario extends OpenGunmaScenario {
 			config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.deleteDirectoryIfExists);
 
 			int numTaxis = 750;
-			String taxiFileName = "gunma-v" + OpenGunmaDefaults.VERSION + "-taxis-" + numTaxis + ".xml";
+			String taxiFileName = "gunma-v" + GunmaDefaults.VERSION + "-taxis-" + numTaxis + ".xml";
 			URL taxiFileUrl = ConfigGroup.getInputFileURL(config.getContext(), taxiFileName);
 			URL networkUrl = ConfigGroup.getInputFileURL(config.getContext(), config.network().getInputFile());
 
@@ -239,6 +250,35 @@ public class OpenGunmaPolicyScenario extends OpenGunmaScenario {
 		}
 	}
 
+	/**
+	 * Replace trips with certain mode with empty trip of different mode.
+	 */
+	private void replaceModeLegsWithOtherMode(Plan plan, Set<String> modes, String replacementMode) {
+
+		final List<PlanElement> planElements = plan.getPlanElements();
+		plan.setScore(null);
+
+		for (TripStructureUtils.Trip trip : TripStructureUtils.getTrips(plan)) {
+
+			Optional<Leg> cleanLeg = trip.getLegsOnly().stream().filter(l -> modes.contains(l.getMode())).findFirst();
+
+			if (cleanLeg.isEmpty()) {
+				continue;
+			}
+
+			final List<PlanElement> fullTrip = planElements.subList(
+				planElements.indexOf(trip.getOriginActivity()) + 1,
+				planElements.indexOf(trip.getDestinationActivity())
+			);
+
+			fullTrip.clear();
+
+			Leg leg = PopulationUtils.createLeg(replacementMode);
+			TripStructureUtils.setRoutingMode(leg, replacementMode);
+			fullTrip.add(leg);
+		}
+	}
+
 	private void removeCarAvailabilityByAge(Scenario scenario, int age) {
 		for (Person person : scenario.getPopulation().getPersons().values()) {
 			if (person.getId().toString().startsWith("gunma_") && PersonUtils.getAge(person) >= age) {
@@ -252,7 +292,7 @@ public class OpenGunmaPolicyScenario extends OpenGunmaScenario {
 		}
 	}
 
-	private String findZone(Activity act, Person person, Scenario scenario, ShpOptions.Index jisIndex) {
+	private static String findZone(Activity act, Person person, Scenario scenario, ShpOptions.Index jisIndex) {
 		if (act.getType().startsWith("home")) {
 			return (String) person.getAttributes().getAttribute("zone");
 		}
@@ -292,7 +332,7 @@ public class OpenGunmaPolicyScenario extends OpenGunmaScenario {
 		double operationEndTime = 3 * 24 * 3600.;
 		int seats = 4;
 		List<DvrpVehicleSpecification> vehicles = new ArrayList<>();
-		Random random = MatsimRandom.getLocalInstance();
+		SplittableRandom random = new SplittableRandom(MatsimRandom.getLocalInstance().nextLong());
 
 		List<Id<Link>> allLinks = new ArrayList<>(network.getLinks().keySet());
 		for (int i = 0; i < numberOfVehicles; i++) {
@@ -314,6 +354,9 @@ public class OpenGunmaPolicyScenario extends OpenGunmaScenario {
 		new FleetWriter(vehicles.stream(), new IntegerLoadType("passengers")).write(taxisFile);
 	}
 
+	/**
+	 * Policy cases supported by this scenario variant.
+	 */
 	public enum PolicyCase {
 		noCarAvailOver75base,
 		noCarAvailOver75policy,

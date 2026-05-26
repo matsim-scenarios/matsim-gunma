@@ -4,65 +4,96 @@ import com.google.inject.Inject;
 import com.google.inject.TypeLiteral;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Scenario;
-import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.api.core.v01.population.Activity;
-import org.matsim.api.core.v01.population.Leg;
 import org.matsim.api.core.v01.population.Person;
 import org.matsim.api.core.v01.population.Plan;
-import org.matsim.api.core.v01.population.PlanElement;
 import org.matsim.application.MATSimAppCommand;
 import org.matsim.application.MATSimApplication;
+import org.matsim.application.prepare.CreateLandUseShp;
+import org.matsim.application.prepare.network.CleanNetwork;
+import org.matsim.application.prepare.network.CreateNetworkFromSumo;
 import org.matsim.application.prepare.population.CleanPopulation;
+import org.matsim.application.prepare.population.DownSamplePopulation;
+import org.matsim.application.prepare.population.MergePopulations;
+import org.matsim.application.prepare.population.SplitActivityTypesDuration;
+import org.matsim.application.prepare.pt.CreateTransitScheduleFromGtfs;
 import org.matsim.contrib.cadyts.car.CadytsCarModule;
 import org.matsim.contrib.cadyts.car.CadytsContext;
 import org.matsim.contrib.cadyts.general.CadytsScoring;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.config.groups.ReplanningConfigGroup;
-import org.matsim.core.config.groups.RoutingConfigGroup;
 import org.matsim.core.config.groups.VspExperimentalConfigGroup;
 import org.matsim.core.controler.AbstractModule;
 import org.matsim.core.controler.Controler;
-import org.matsim.core.controler.OutputDirectoryHierarchy;
-import org.matsim.core.population.PopulationUtils;
-import org.matsim.core.population.routes.NetworkRoute;
-import org.matsim.core.population.routes.mediumcompressed.MediumCompressedNetworkRouteFactory;
 import org.matsim.core.replanning.choosers.ForceInnovationStrategyChooser;
 import org.matsim.core.replanning.choosers.StrategyChooser;
 import org.matsim.core.replanning.strategies.DefaultPlanStrategiesModule;
-import org.matsim.core.router.DefaultAnalysisMainModeIdentifier;
-import org.matsim.core.router.MainModeIdentifier;
-import org.matsim.core.router.TripStructureUtils;
 import org.matsim.core.scoring.ScoringFunction;
 import org.matsim.core.scoring.ScoringFunctionFactory;
 import org.matsim.core.scoring.SumScoringFunction;
 import org.matsim.core.scoring.functions.ScoringParametersForPerson;
-import org.matsim.core.utils.geometry.CoordUtils;
+import org.matsim.dashboard.GunmaSimwrapperRunner;
 import org.matsim.prepare.ExtendExperiencedPlansListener;
-import org.matsim.prepare.OpenGunmaPreparationUtils;
+import org.matsim.prepare.counts.CreateCountsFromJarticData;
+import org.matsim.prepare.counts.CreateCountsFromMlitData;
+import org.matsim.prepare.facilities.CreateMATSimFacilitiesGunma;
+import org.matsim.prepare.facilities.FacilitiesFilter;
+import org.matsim.prepare.opt.RunCountOptimization;
 import org.matsim.prepare.opt.SelectPlansFromIndex;
+import org.matsim.prepare.population.*;
+import org.matsim.prepare.vehicles.PrepareVehicleTypes;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.SimWrapperModule;
 import picocli.CommandLine;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Objects;
 
-@CommandLine.Command(
-	header = ":: Open Gunma Calibration Scenario ::",
-	mixinStandardHelpOptions = true,
-	showDefaultValues = true
-)
-public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
+//@CommandLine.Command(
+//	header = ":: Gunma Calibration Scenario ::",
+//	mixinStandardHelpOptions = true,
+//	showDefaultValues = true
+//)
 
-	private static final Logger log = LogManager.getLogger(OpenGunmaCalibrationScenario.class);
+/**
+ * Scenario variant used during model preparation and calibration-oriented preprocessing runs.
+ *
+ * <p>This variant extends the shared Gunma base scenario with the preparation pipeline registration
+ * and the lightweight calibration modes used while generating scenario inputs.
+ */
+@CommandLine.Command(header = ":: Gunma Preparation Scenario ::", mixinStandardHelpOptions = true)
+@MATSimApplication.Prepare({
+	GunmaSimwrapperRunner.class,
+	CreateLandUseShp.class,
+	CreateGunmaPopulation.class,
+	CreateGunmaCommuterPopulation.class,
+	MergePopulations.class,
+	DownSamplePopulation.class,
+	CreateNetworkFromSumo.class,
+	CreateTransitScheduleFromGtfs.class,
+	CleanNetwork.class,
+	RunActivitySampling.class,
+	InitLocationChoice.class,
+	CreateMATSimFacilitiesGunma.class,
+	FacilitiesFilter.class,
+	LookupJisZone.class,
+	CreateCountsFromMlitData.class,
+	CreateCountsFromJarticData.class,
+	RunCountOptimization.class,
+	SelectPlansFromIndex.class,
+	SplitActivityTypesDuration.class,
+	AmendStartTimeCommuters.class,
+	PrepareVehicleTypes.class,
+	SplitMorningEveningActivities.class
+})
+public class GunmaPreparationScenario extends GunmaBaseScenario {
+
+	private static final Logger log = LogManager.getLogger(GunmaPreparationScenario.class);
 
 	@CommandLine.Option(names = "--mode", description = "Calibration mode that should be run.", required = true)
-	private CalibrationMode mode;
+	private PreparationMode mode;
 
 	@CommandLine.Option(names = "--weight", description = "Strategy weight.", defaultValue = "1")
 	private double weight;
@@ -73,43 +104,22 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 	@CommandLine.Option(names = "--facilities", description = "Path to facilities.")
 	private Path facilitiesPath;
 
-	@CommandLine.Option(
-		names = "--all-car",
-		description = "All plans will use car mode. Capacity is adjusted automatically by " + OpenGunmaPreparationUtils.CAR_FACTOR,
-		defaultValue = "false"
-	)
-	private boolean allCar;
 
 	@CommandLine.Option(names = "--scale-factor", description = "Scale factor for capacity to avoid congestions.", defaultValue = "1.5")
 	private double scaleFactor;
 
-	@CommandLine.Option(names = "--plan-index", description = "Only use one plan with specified index")
-	private Integer planIndex;
 
 	private final boolean simwrapperOn = false;
 
-	public OpenGunmaCalibrationScenario() {
-		super();
-	}
-
+	/**
+	 * Runs the preparation scenario from the command line.
+	 *
+	 * @param args command-line arguments
+	 */
 	public static void main(String[] args) {
-		MATSimApplication.run(OpenGunmaCalibrationScenario.class, args);
+		MATSimApplication.run(GunmaPreparationScenario.class, args);
 	}
 
-	private static Coord getCoord(Scenario scenario, Activity act) {
-		if (act.getCoord() != null) {
-			return act.getCoord();
-		}
-
-		if (act.getFacilityId() != null) {
-			return Objects.requireNonNull(
-				scenario.getActivityFacilities().getFacilities().get(act.getFacilityId()),
-				() -> "Facility %s not found".formatted(act.getFacilityId())
-			).getCoord();
-		}
-
-		return scenario.getNetwork().getLinks().get(act.getLinkId()).getCoord();
-	}
 
 	@Override
 	@SuppressWarnings("JavaNCSS")
@@ -131,7 +141,7 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 		SimWrapperConfigGroup sw = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
 		if (sample.isSet()) {
 			double sampleSize = sample.getSample();
-			double countScale = allCar ? OpenGunmaPreparationUtils.CAR_FACTOR : 1;
+			double countScale = 1;
 
 			config.qsim().setFlowCapFactor(sampleSize * countScale);
 			config.qsim().setStorageCapFactor(sampleSize * countScale);
@@ -146,22 +156,6 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 
 		log.info("Running with flow and storage capacity: {} / {}", config.qsim().getFlowCapFactor(), config.qsim().getStorageCapFactor());
 
-		if (allCar) {
-			config.transit().setUseTransit(false);
-			sw.setDefaultDashboards(SimWrapperConfigGroup.DefaultDashboardsMode.disabled);
-			config.routing().setNetworkModes(List.of(TransportMode.car, TransportMode.ride));
-			config.routing().addTeleportedModeParams(new RoutingConfigGroup.TeleportedModeParams(TransportMode.bike)
-				.setBeelineDistanceFactor(1.3)
-				.setTeleportedModeSpeed(3.1388889));
-			config.routing().addTeleportedModeParams(new RoutingConfigGroup.TeleportedModeParams(TransportMode.truck)
-				.setBeelineDistanceFactor(1.3)
-				.setTeleportedModeSpeed(8.3));
-			config.routing().addTeleportedModeParams(new RoutingConfigGroup.TeleportedModeParams("freight")
-				.setBeelineDistanceFactor(1.3)
-				.setTeleportedModeSpeed(8.3));
-			config.qsim().setMainModes(List.of(TransportMode.car));
-		}
-
 		List<String> relevantSubpopulations = List.of("person", "commuter2gunma");
 		for (String subpopulation : relevantSubpopulations) {
 			config.replanning().addStrategySettings(
@@ -172,7 +166,7 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 			);
 		}
 
-		if (mode == CalibrationMode.cadyts) {
+		if (mode == PreparationMode.cadyts) {
 			for (String subpopulation : relevantSubpopulations) {
 				config.replanning().addStrategySettings(new ReplanningConfigGroup.StrategySettings()
 					.setStrategyName(DefaultPlanStrategiesModule.DefaultStrategy.ReRoute)
@@ -195,14 +189,14 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 			config.vspExperimental().setVspDefaultsCheckingLevel(VspExperimentalConfigGroup.VspDefaultsCheckingLevel.ignore);
 			config.global().setNumberOfThreads(Math.min(12, config.global().getNumberOfThreads()));
 			config.qsim().setNumberOfThreads(Math.min(12, config.qsim().getNumberOfThreads()));
-		} else if (mode == CalibrationMode.routeChoice) {
+		} else if (mode == PreparationMode.routeChoice) {
 			for (String subpopulation : relevantSubpopulations) {
 				config.replanning().addStrategySettings(new ReplanningConfigGroup.StrategySettings()
 					.setStrategyName(DefaultPlanStrategiesModule.DefaultStrategy.ReRoute)
 					.setWeight(weight / 8)
 					.setSubpopulation(subpopulation));
 			}
-		} else if (mode == CalibrationMode.eval) {
+		} else if (mode == PreparationMode.eval) {
 			iterations = 0;
 			config.controller().setLastIteration(0);
 		} else {
@@ -218,7 +212,7 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 			removePtFromScenario(scenario);
 		}
 
-		if (mode == CalibrationMode.cadyts) {
+		if (mode == PreparationMode.cadyts) {
 			for (Person person : scenario.getPopulation().getPersons().values()) {
 				for (int i = 0; i < person.getPlans().size(); i++) {
 					person.getPlans().get(i).setType(String.valueOf(i));
@@ -226,65 +220,11 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 			}
 		}
 
-		if (planIndex != null) {
-			log.info("Using plan with index {}", planIndex);
-			for (Person person : scenario.getPopulation().getPersons().values()) {
-				SelectPlansFromIndex.selectPlanWithIndex(person, planIndex);
-			}
-		}
-
-		if (!allCar) {
-			return;
-		}
-
-		scenario.getPopulation().getFactory().getRouteFactories()
-			.setRouteFactory(NetworkRoute.class, new MediumCompressedNetworkRouteFactory());
-
-		log.info("Converting all agents to car plans.");
-		MainModeIdentifier mmi = new DefaultAnalysisMainModeIdentifier();
-
-		for (Person person : scenario.getPopulation().getPersons().values()) {
-			for (Plan plan : person.getPlans()) {
-				final List<PlanElement> planElements = plan.getPlanElements();
-				final List<TripStructureUtils.Trip> trips = TripStructureUtils.getTrips(plan);
-
-				for (TripStructureUtils.Trip trip : trips) {
-					final List<PlanElement> fullTrip = planElements.subList(
-						planElements.indexOf(trip.getOriginActivity()) + 1,
-						planElements.indexOf(trip.getDestinationActivity())
-					);
-
-					String modeName = mmi.identifyMainMode(fullTrip);
-					if (Objects.equals(modeName, TransportMode.car) ||
-						Objects.equals(modeName, TransportMode.truck) ||
-						Objects.equals(modeName, "freight")) {
-						continue;
-					}
-
-					double dist = CoordUtils.calcEuclideanDistance(
-						getCoord(scenario, trip.getOriginActivity()),
-						getCoord(scenario, trip.getDestinationActivity())
-					);
-
-					if (dist <= 350 && (Objects.equals(modeName, TransportMode.walk) || Objects.equals(modeName, TransportMode.bike))) {
-						continue;
-					}
-
-					String desiredMode = dist <= 350 ? TransportMode.walk : TransportMode.car;
-					if (!Objects.equals(modeName, desiredMode)) {
-						fullTrip.clear();
-						Leg leg = PopulationUtils.createLeg(desiredMode);
-						TripStructureUtils.setRoutingMode(leg, desiredMode);
-						fullTrip.add(leg);
-					}
-				}
-			}
-		}
 	}
 
 	@Override
 	protected void prepareControler(Controler controler) {
-		if (mode == CalibrationMode.cadyts) {
+		if (mode == PreparationMode.cadyts) {
 			controler.addOverridingModule(new CadytsCarModule());
 			controler.setScoringFunctionFactory(new ScoringFunctionFactory() {
 				@Inject
@@ -312,7 +252,7 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 					}).toInstance(new ForceInnovationStrategyChooser<>((int) Math.ceil(1.0 / weight), ForceInnovationStrategyChooser.Permute.yes));
 				}
 			});
-		} else if (mode == CalibrationMode.routeChoice) {
+		} else if (mode == PreparationMode.routeChoice) {
 			controler.addOverridingModule(new AbstractModule() {
 				@Override
 				public void install() {
@@ -329,7 +269,7 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 			}
 		});
 
-		prepareCommonControler(controler, allCar);
+		prepareCommonControler(controler);
 		if (simwrapperOn) {
 			controler.addOverridingModule(new SimWrapperModule());
 		}
@@ -346,7 +286,10 @@ public class OpenGunmaCalibrationScenario extends OpenGunmaScenario {
 		);
 	}
 
-	public enum CalibrationMode {
+	/**
+	 * Preparation and calibration-oriented execution modes supported by this scenario variant.
+	 */
+	public enum PreparationMode {
 		eval,
 		cadyts,
 		routeChoice
