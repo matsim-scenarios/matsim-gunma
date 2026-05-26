@@ -27,10 +27,10 @@ import org.matsim.core.router.TripStructureUtils;
 import org.matsim.core.utils.geometry.CoordUtils;
 import org.matsim.core.utils.geometry.geotools.MGC;
 import org.matsim.facilities.ActivityFacility;
-import org.matsim.prepare.RunOpenGunmaCalibration;
+import org.matsim.prepare.OpenGunmaPreparationUtils;
 import org.matsim.prepare.facilities.AttributedActivityFacility;
 import org.matsim.run.Activities;
-import org.matsim.run.OpenGunmaScenario;
+import org.matsim.run.OpenGunmaDefaults;
 import picocli.CommandLine;
 
 import java.math.BigInteger;
@@ -101,7 +101,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 		double x = Math.cos(angle) * dist;
 		double y = Math.sin(angle) * dist;
 
-		return new Coord(RunOpenGunmaCalibration.roundNumber(origin.getX() + x), RunOpenGunmaCalibration.roundNumber(origin.getY() + y));
+		return new Coord(OpenGunmaPreparationUtils.roundNumber(origin.getX() + x), OpenGunmaPreparationUtils.roundNumber(origin.getY() + y));
 	}
 
 	@Override
@@ -138,7 +138,7 @@ public class InitLocationChoice implements MATSimAppCommand, PersonAlgorithm {
 		filter.filter(network, Set.of(TransportMode.car));
 
 		// Read facilities
-		facilities = new FacilityIndex(facilityPath.toString(), OpenGunmaScenario.CRS);
+		facilities = new FacilityIndex(facilityPath.toString(), OpenGunmaDefaults.CRS);
 
 
 		log.info("Using input file: {}", input);

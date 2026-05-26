@@ -5,7 +5,7 @@ import org.matsim.contrib.vsp.scoring.RideScoringParamsFromCarParams;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.config.groups.*;
-import org.matsim.run.OpenGunmaScenario;
+import org.matsim.run.OpenGunmaDefaults;
 
 import java.util.List;
 import java.util.Map;
@@ -26,7 +26,7 @@ public final class PrepareConfig {
 
 		// ############
 		// global
-		config.global().setCoordinateSystem(OpenGunmaScenario.CRS);
+		config.global().setCoordinateSystem(OpenGunmaDefaults.CRS);
 		config.global().setInsistingOnDeprecatedConfigVersion(false);
 		config.global().setNumberOfThreads(16);
 
@@ -42,23 +42,23 @@ public final class PrepareConfig {
 
 		// ############
 		// network
-		config.network().setInputFile("gunma-v" + OpenGunmaScenario.VERSION + "-network.xml.gz");
+		config.network().setInputFile(OpenGunmaDefaults.networkFile());
 
 		// ############
 		// facilities
-		config.facilities().setInputFile("gunma-v" + OpenGunmaScenario.VERSION + "-100pct-facilities.xml.gz");
+		config.facilities().setInputFile(OpenGunmaDefaults.facilitiesFile());
 		config.facilities().setFacilitiesSource(FacilitiesConfigGroup.FacilitiesSource.fromFile);
 
 		// ############
 		//plans
 		config.plans().setRemovingUnneccessaryPlanAttributes(true);
-		config.plans().setInputFile("gunma-v" + OpenGunmaScenario.VERSION + "-100pct-plans.xml.gz");
+		config.plans().setInputFile(OpenGunmaDefaults.plansFile());
 
 
 		// ############
 		// vehicle type
 		config.qsim().setVehiclesSource(QSimConfigGroup.VehiclesSource.modeVehicleTypesFromVehiclesData);
-		config.vehicles().setVehiclesFile("gunma-v" + OpenGunmaScenario.VERSION + "-vehicleTypes.xml");
+		config.vehicles().setVehiclesFile(OpenGunmaDefaults.vehicleTypesFile());
 
 		// ############
 		// qsim
@@ -148,7 +148,7 @@ public final class PrepareConfig {
 		RideScoringParamsFromCarParams.setRideScoringParamsBasedOnCarParams(config.scoring(), 1.0);
 
 		// write config
-		ConfigUtils.writeConfig(config, "input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-config.xml");
+		ConfigUtils.writeConfig(config, OpenGunmaDefaults.configPath());
 
 	}
 

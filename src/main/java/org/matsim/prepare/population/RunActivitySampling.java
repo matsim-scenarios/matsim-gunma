@@ -15,7 +15,7 @@ import org.matsim.core.population.PopulationUtils;
 import org.matsim.core.population.algorithms.ParallelPersonAlgorithmUtils;
 import org.matsim.core.population.algorithms.PersonAlgorithm;
 import org.matsim.core.router.TripStructureUtils;
-import org.matsim.prepare.RunOpenGunmaCalibration;
+import org.matsim.prepare.OpenGunmaPreparationUtils;
 import org.matsim.run.Activities;
 import picocli.CommandLine;
 
@@ -121,7 +121,7 @@ public final class RunActivitySampling implements MATSimAppCommand, PersonAlgori
 				// otherwise start and end time
 				int seconds = randomizeDuration(duration, rnd);
 
-				if (RunOpenGunmaCalibration.FLEXIBLE_ACTS.contains(actType))
+				if (OpenGunmaPreparationUtils.FLEXIBLE_ACTS.contains(actType))
 					a.setMaximumDuration(seconds);
 				else {
 					a.setStartTime(startTime);
@@ -166,7 +166,7 @@ public final class RunActivitySampling implements MATSimAppCommand, PersonAlgori
 		// Last activity has no end time and duration
 		if (a != null) {
 
-			if (!RunOpenGunmaCalibration.FLEXIBLE_ACTS.contains(a.getType())) {
+			if (!OpenGunmaPreparationUtils.FLEXIBLE_ACTS.contains(a.getType())) {
 				a.setEndTimeUndefined();
 				a.setMaximumDurationUndefined();
 			} else {

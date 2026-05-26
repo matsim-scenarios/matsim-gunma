@@ -21,7 +21,7 @@ import org.matsim.counts.Counts;
 import org.matsim.counts.MatsimCountsReader;
 import org.matsim.counts.Measurable;
 import org.matsim.counts.MeasurementLocation;
-import org.matsim.prepare.RunOpenGunmaCalibration;
+import org.matsim.prepare.OpenGunmaPreparationUtils;
 import org.optaplanner.core.api.solver.Solver;
 import org.optaplanner.core.api.solver.SolverFactory;
 import picocli.CommandLine;
@@ -98,7 +98,7 @@ public class RunCountOptimization implements MATSimAppCommand {
 					int idx = k * H + i;
 					counts[idx] = (int) v.getAsDouble();
 					if (allCar)
-						counts[idx] = (int) (counts[idx] * RunOpenGunmaCalibration.CAR_FACTOR);
+						counts[idx] = (int) (counts[idx] * OpenGunmaPreparationUtils.CAR_FACTOR);
 				}
 			}
 
@@ -114,7 +114,7 @@ public class RunCountOptimization implements MATSimAppCommand {
 		log.info("Collected {} relevant plans", persons.size());
 
 		if (allCar)
-			log.info("Scaled counts by car factor of {}", RunOpenGunmaCalibration.CAR_FACTOR);
+			log.info("Scaled counts by car factor of {}", OpenGunmaPreparationUtils.CAR_FACTOR);
 
 		// Error scales are very different so different betas are needed
 		double beta = switch (metric) {
@@ -169,7 +169,7 @@ public class RunCountOptimization implements MATSimAppCommand {
 				// if other trips have been scaled, these unscaled trips are scaled as well
 				if (allCar)
 					// scale with mean of CAR_FACTOR
-					scale *= RunOpenGunmaCalibration.CAR_FACTOR;
+					scale *= OpenGunmaPreparationUtils.CAR_FACTOR;
 			}
 
 			// Index for plan

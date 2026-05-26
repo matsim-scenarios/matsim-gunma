@@ -17,12 +17,12 @@ import java.util.Map;
 /**
  * This class attached information to the experienced plans needed for calibration.
  */
-class ExtendExperiencedPlansListener implements ScoringListener {
+public class ExtendExperiencedPlansListener implements ScoringListener {
 
 	private final ExperiencedPlansService service;
 
 	@Inject
-	ExtendExperiencedPlansListener(ExperiencedPlansService service) {
+	public ExtendExperiencedPlansListener(ExperiencedPlansService service) {
 		this.service = service;
 	}
 

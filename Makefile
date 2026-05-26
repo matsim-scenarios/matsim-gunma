@@ -14,7 +14,7 @@ osmosis := osmosis
 SUMO_HOME := /Users/jakob/sumo
 
 # Scenario creation tool
-sc := java -Xms$(MEMORY) -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.prepare.RunOpenGunmaCalibration
+sc := java -Xms$(MEMORY) -Xmx$(MEMORY) -XX:+UseParallelGC -cp $(JAR) org.matsim.prepare.OpenGunmaPreparation
 
 $(JAR):
 	mvn package
@@ -349,13 +349,12 @@ $(FACILITIES_FINAL): $(FACILITIES_FULL) $(PLANS_FINAL)
 # - env
 # - run
 
-# Calibration script runs RunOpenGunmaScenario! (Not RunOpenGunmaCalibration 😵‍💫)
-# So make sure you make all neccessary changes there. e.g turn SimWrapper off and
-# increase iterations to 500.
+# Calibration runtime is now org.matsim.run.RunOpenGunmaCalibrationScenario.
+# Base runs use org.matsim.run.RunOpenGunmaScenario and policy runs use
+# org.matsim.run.RunOpenGunmaPolicyScenario.
 
 #### DASHBOARD
 output/dashboard-1.yaml:
 	$(sc) prepare gunma-dashboard output/
-
 
 
