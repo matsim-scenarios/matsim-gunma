@@ -26,8 +26,8 @@ from matsim.calibration import create_calibration, ASCCalibrator, utils, analysi
 
 # modes = ["walk", "car", "ride", "pt", "bike"]
 # INITIAL ASCs
-# modes = ["walk", "car", "ride", "bike"]
-modes = ["walk", "car", "bike"]
+modes = ["walk", "car", "ride", "bike"]
+#modes = ["walk", "car", "bike"]
 fixed_mode = "walk"
 initial = {
     "bike": -1.432778,

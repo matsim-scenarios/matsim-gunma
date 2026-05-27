@@ -89,7 +89,9 @@ public final class PrepareConfig {
 		// ############
 		// routing
 		config.routing().setAccessEgressType(RoutingConfigGroup.AccessEgressType.accessEgressModeToLink);
+		config.routing().setNetworkModes(List.of(TransportMode.car, TransportMode.ride));
 		config.routing().removeTeleportedModeParams(TransportMode.pt);
+		config.routing().removeTeleportedModeParams(TransportMode.ride);
 
 		// ############
 		// scoring

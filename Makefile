@@ -21,8 +21,8 @@ $(JAR):
 	mvn package
 
 
-S := 10
-X := 0.1
+S := 25
+X := 0.25
 
 
 NETWORK_FINAL := $(p)/gunma-$V-network.xml.gz

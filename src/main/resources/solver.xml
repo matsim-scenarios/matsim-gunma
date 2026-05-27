@@ -3,7 +3,7 @@
 		xsi:schemaLocation="https://www.optaplanner.org/xsd/solver https://www.optaplanner.org/xsd/solver/solver.xsd">
 
 	<environmentMode>REPRODUCIBLE</environmentMode>
-	<moveThreadCount>4</moveThreadCount>
+	<moveThreadCount>NONE</moveThreadCount>
 
 	<solutionClass>org.matsim.prepare.opt.PlanAssignmentProblem</solutionClass>
 	<entityClass>org.matsim.prepare.opt.PlanPerson</entityClass>

@@ -12,13 +12,12 @@ download necessary files
 
 # foldername="2026-03-12d-calibration-03_30"
 
-foldername="2026-05-15b-calibration-1pct-0.02-20"
+# foldername="2026-05-15b-calibration-1pct-0.02-20"
 
+foldername="2026-05-27b-calibration-10pct-50iter-extended"
 
 cluster_dir="mc:/net/ils/rehmann/matsim-gunma/$foldername"
 local_dir="$foldername"
-
-
 
 mkdir -p "$local_dir"
 
@@ -41,7 +40,7 @@ library(yaml)
 # local_dir <- "2026-03-12c-calibration-01_30"
 # local_dir <- "2026-03-12d-calibration-03_30"
 
-local_dir <- "2026-05-15b-calibration-1pct-0.02-20"
+local_dir <- "2026-05-27b-calibration-10pct-50iter-extended"
 
 
 # local_dir <- "tmp"
@@ -65,7 +64,7 @@ for (runNum in seq_along(configs)) {
 
 df <- do.call(rbind, rows)
 
-ggplot(df) + geom_line(aes(run,asc, col = mode))  + scale_x_continuous(breaks = seq(0,9, by = 1), minor_breaks = NULL)
+ggplot(df) + geom_line(aes(run,asc, col = mode))  + scale_x_continuous(breaks = seq(0,20, by = 1), minor_breaks = NULL)
 ```
 
 ```{r}
@@ -83,7 +82,7 @@ df_mode <- map_dfr(seq_along(mode_stats), \(runNum)
     mutate(run = runNum - 1)
 )
 
-dot_pos <- 2
+dot_pos <- 12
 goal <-  data.frame(mode = c("bike", "car","ride","walk"), run = c(dot_pos,dot_pos,dot_pos,dot_pos), share = c(0.086,0.682,0.115,0.117))
 
 df_mode %>% 
@@ -91,6 +90,6 @@ df_mode %>%
   ggplot() + 
   geom_line(aes(run, share, col = mode)) +
   geom_point(data = goal, mapping = aes(run, share, col = mode)) +
-  scale_x_continuous(breaks = seq(0,9, by = 1), minor_breaks = NULL)
+  scale_x_continuous(breaks = seq(0,20, by = 1), minor_breaks = NULL)
 
 ```

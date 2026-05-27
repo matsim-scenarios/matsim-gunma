@@ -1,5 +1,7 @@
 package org.matsim.run;
 
+import com.google.inject.Key;
+import com.google.inject.name.Names;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.Scenario;
 import org.matsim.api.core.v01.TransportMode;
@@ -19,6 +21,7 @@ import org.matsim.core.controler.OutputDirectoryHierarchy;
 import org.matsim.core.population.PersonUtils;
 import org.matsim.core.replanning.strategies.DefaultPlanStrategiesModule;
 import org.matsim.core.router.TripStructureUtils;
+import org.matsim.core.router.costcalculators.TravelDisutilityFactory;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 import picocli.CommandLine;
 
@@ -155,7 +158,7 @@ public class GunmaBaseScenario extends MATSimApplication {
 	 * @param controler controller to configure
 	 */
 	protected final void prepareCommonControler(Controler controler) {
-		controler.addOverridingModule(new TravelTimeBinding(false));
+		controler.addOverridingModule(new TravelTimeBinding());
 	}
 
 	@Override
@@ -164,16 +167,18 @@ public class GunmaBaseScenario extends MATSimApplication {
 		configureCommonConfig(config);
 		configureCommonActivityScoring(config);
 		config.controller().setLastIteration(500);
+//		config.routing().removeTeleportedModeParams(TransportMode.ride);
 
 		SimWrapperConfigGroup sw = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
 		if (sample.isSet()) {
 			modifyForSample(config, sw, sample);
 		}
 
+		// based on /net/ils/rehmann/matsim-gunma/2026-05-27b-calibration-10pct-50iter-extended/runs/012
 		config.scoring().getModes().get(TransportMode.walk).setConstant(0.0);
-		config.scoring().getModes().get(TransportMode.car).setConstant(-0.847163);
-		config.scoring().getModes().get(TransportMode.ride).setConstant(-1.652781);
-		config.scoring().getModes().get(TransportMode.bike).setConstant(-1.432778);
+		config.scoring().getModes().get(TransportMode.car).setConstant(-1.127816);
+		config.scoring().getModes().get(TransportMode.ride).setConstant(-1.393684);
+		config.scoring().getModes().get(TransportMode.bike).setConstant(-1.726253);
 
 		for (String subpopulation : List.of("person", "commuter2gunma")) {
 			config.replanning().addStrategySettings(
@@ -247,28 +252,14 @@ public class GunmaBaseScenario extends MATSimApplication {
 	 */
 	public static final class TravelTimeBinding extends AbstractModule {
 
-		private final boolean carOnly;
 
-		/** Creates the default binding for the standard multimodal scenario. */
-		public TravelTimeBinding() {
-			this(false);
-		}
-
-		/**
-		 * Creates the binding module.
-		 *
-		 * @param carOnly if {@code true}, omit non-car travel-time bindings
-		 */
-		public TravelTimeBinding(boolean carOnly) {
-			this.carOnly = carOnly;
-		}
 
 		/** Installs the configured travel-time bindings. */
 		@Override
 		public void install() {
-			if (carOnly) {
-				return;
-			}
+			addTravelTimeBinding(TransportMode.ride).to(networkTravelTime());
+			addTravelDisutilityFactoryBinding(TransportMode.ride)
+				.to(Key.get(TravelDisutilityFactory.class, Names.named(TransportMode.car)));
 		}
 	}
 }

@@ -25,7 +25,7 @@
 	<description>A transport model of Gunma Prefecture in Japan</description>
 
 	<properties>
-		<main.class>org.matsim.run.RunOpenGunmaScenario</main.class>
+		<main.class>org.matsim.run.GunmaBaseScenario</main.class>
 
 		<!-- Don't modify, will use the same version as parent -->
 		<matsim.version>${project.parent.version}</matsim.version>
