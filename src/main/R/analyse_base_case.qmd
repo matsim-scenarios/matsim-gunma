@@ -47,14 +47,21 @@ persons %>%
 ```{r}
 trips %>% group_by(person) %>% 
   summarise(num_trips = n()) %>% 
-  right_join(persons %>% select(person,age_factor,sex)) %>% 
+  right_join(persons %>% select(person,age,sex)) %>% 
+  mutate(age_factor2 = case_when(age <18 ~ "0-17", age < 30 ~ "18-29", age <45 ~ "30-44", age <65 ~ "45-64", age <75 ~ "65-74", age < 85 ~ "75-84", .default = "85+")) %>%
   mutate(num_trips = replace_na(num_trips,0)) %>% 
-  group_by(age_factor,sex) %>% summarise(num_trips = mean(num_trips)) %>% 
-    mutate(sex = factor(sex, levels = c("m","f"),labels = c("Male","Female"))) %>% 
+  group_by(age_factor2,sex) %>% summarise(num_trips = mean(num_trips)) %>% 
+    mutate(Sex = factor(sex, levels = c("m","f"),labels = c("Male","Female"))) %>% 
 
-  ggplot(aes(age_factor, num_trips, fill = sex)) + geom_col(position = "dodge") +
-  theme_minimal(base_size = 14)+
-  labs(x = "Age Group", y = "Number of Trips", title = "Trip Distribution by Age and Gender in Base Case")
+  ggplot(aes(age_factor2, num_trips, fill = Sex)) + geom_col(position = "dodge") +
+  theme_minimal(base_size = 20)+
+  labs(x = "Age Group", y = "Number of Trips")+
+  theme(
+  axis.text.x = element_text(
+    angle = 45,
+    hjust = 1
+  )
+)
 
 
 
@@ -70,7 +77,7 @@ trips %>%
   ggplot() + 
   geom_col(aes(age_factor, share, fill = Mode)) + 
   facet_grid(~sex) +
-  theme_minimal(base_size = 14)+
+  theme_minimal(base_size = 24,)+
   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   labs(x = "Age Group", y = "Modal Split (Trip-Based)")
 
@@ -106,8 +113,8 @@ tokyo <- st_as_sf(
 japan_map <- tm_basemap("Esri.WorldGrayCanvas") + 
   tm_shape(bbox %>% st_as_sfc())+
   tm_shape(pref_shp %>% filter(NAME_1 == "Gunma")) + tm_fill(fill = "blue") + 
-  tm_text("NAME_1",xmod = -5, ymod = 4, size = 1, col = "blue") +
-  tm_shape(tokyo) +  tm_symbols(shape = 8, size = 1) + tm_text("name",xmod = 2, ymod = - 3, size = 1)
+  tm_text("NAME_1",xmod = -2, ymod = 2.9, size = 2, col = "blue") +
+  tm_shape(tokyo) +  tm_symbols(shape = 8, size = 1) + tm_text("name",xmod = 2, ymod = - 2.0, size = 2)
 
 
 japan_map
@@ -120,7 +127,8 @@ fig_map <- tm_basemap("Esri.WorldGrayCanvas") +
     japan_map,
     height = 12,
     width = 12,
-    position = tm_pos_in(0.0,1.0)
+    position = tm_pos_in(0.0,1.0),
+    frame = FALSE
   )
 
 fig_map

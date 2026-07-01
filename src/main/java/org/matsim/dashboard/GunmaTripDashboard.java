@@ -8,10 +8,6 @@ import org.matsim.simwrapper.dashboard.TripDashboard;
  */
 public class GunmaTripDashboard extends TripDashboard {
 
-	public GunmaTripDashboard() {
-		super();
-	}
-
 	public GunmaTripDashboard(@Nullable String modeShareRefCsv, @Nullable String modeShareDistRefCsv, @Nullable String modeUsersRefCsv) {
 		super(modeShareRefCsv, modeShareDistRefCsv, modeUsersRefCsv);
 	}

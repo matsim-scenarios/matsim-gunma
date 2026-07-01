@@ -694,4 +694,61 @@ write_csv(final,"../shared-svn/projects/matsim-gunma/data/processed/roadcounts/m
 <!-- ``` -->
 
 
+# EWGT Paper plots
+
+```{r}
+base_counts <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.8/2026-05-27f-basePolicy-rawdog/output-base/analysis/traffic-car/count_comparison_by_hour.csv")
+
+base_counts %>% glimpse()
+
+base_counts %>%
+  group_by(link_id) %>%
+  summarise(
+    observed_traffic_volume = sum(observed_traffic_volume),
+    simulated_traffic_volume = sum(simulated_traffic_volume),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(observed_traffic_volume, simulated_traffic_volume)) +
+
+  geom_point(alpha = 0.5) +
+
+  geom_abline(
+    aes(slope = 1, intercept = 0, linetype = "Perfect fit")
+  ) +
+
+  geom_abline(
+    aes(slope = 1.2, intercept = 0, linetype = "±20% error")
+  ) +
+  geom_abline(
+    aes(slope = 0.8, intercept = 0, linetype = "±20% error")
+  ) +
+
+  geom_abline(
+    aes(slope = 1.4, intercept = 0, linetype = "±40% error")
+  ) +
+  geom_abline(
+    aes(slope = 0.6, intercept = 0, linetype = "±40% error")
+  ) +
+
+  scale_linetype_manual(
+    values = c(
+      "Perfect fit" = "solid",
+      "±20% error" = "dashed",
+      "±40% error" = "dotted"
+    )
+  ) +
+
+  coord_equal() +
+  theme_minimal(base_size = 14) +
+
+  labs(
+    x = "Observed traffic volume",
+    y = "Simulated traffic volume",
+    linetype = NULL
+  )
+
+base_counts %>% mutate(volume_diff = simulated_traffic_volume - observed_traffic_volume, relative_error = volume_diff/observed_traffic_volume * 100) %>% group_by(hour) %>% summarise(relative_error = mean(relative_error),sqv = mean(sqv)) %>% ggplot() + geom_line(aes(hour,sqv))
+
+
+```
 

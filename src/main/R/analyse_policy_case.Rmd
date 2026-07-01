@@ -16,22 +16,24 @@ library(tmap)
 
 
 ```{r}
-persons_base <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18b-base-3000/gunma.output_persons.csv.gz") %>%  
+persons_base <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.8/2026-05-27f-basePolicy-rawdog/output-base/gunma.output_persons.csv.gz") %>%  
   filter(!str_starts(person,"commuter")) %>%
-  mutate(age_round = floor(age/10)*10) %>% 
-  mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+")))
+  mutate(age_factor = case_when(age <18 ~ "0-17", age < 30 ~ "18-29", age <45 ~ "30-44", age <65 ~ "45-64", age <75 ~ "65-74", age < 85 ~ "75-84", .default = "85+")) 
+  # mutate(age_round = floor(age/10)*10) %>% 
+  # mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+")))
 
-trips_base <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18b-base-3000/gunma.output_trips.csv.gz") %>%  
+trips_base <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.8/2026-05-27f-basePolicy-rawdog/output-base/gunma.output_trips.csv.gz") %>%  
   filter(!str_starts(person,"commuter")) 
 
 
 
-persons_policy <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18b-policy-3000/gunma.output_persons.csv.gz")  %>%  
+persons_policy <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.8/2026-05-27f-basePolicy-rawdog/output-policy/gunma.output_persons.csv.gz")  %>%  
   filter(!str_starts(person,"commuter")) %>%
-  mutate(age_round = floor(age/10)*10) %>% 
-  mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+")))
+  mutate(age_factor = case_when(age <18 ~ "0-17", age < 30 ~ "18-29", age <45 ~ "30-44", age <65 ~ "45-64", age <75 ~ "65-74", age < 85 ~ "75-84", .default = "85+"))
+  # mutate(age_round = floor(age/10)*10) %>% 
+  # mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+")))
 
-trips_policy <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-18b-policy-3000/gunma.output_trips.csv.gz") %>%  
+trips_policy <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.8/2026-05-27f-basePolicy-rawdog/output-policy/gunma.output_trips.csv.gz") %>%  
   filter(!str_starts(person,"commuter")) 
 
 # persons <- persons_raw %>%
@@ -54,56 +56,147 @@ persons_policy %>% group_by(age_factor, carAvail) %>% count() %>% ungroup() %>% 
 mode share
 ```{r}
 
+# mode_cols <- c(
+#   car  = "#4E79A7",
+#   ride = "#59A14F",
+#   walk = "#F28E2B",
+#   bike = "#E15759"
+# )
+
+mode_cols <- c(
+  car  = "#0072B2",
+  ride = "#009E73",
+  walk = "#E69F00",
+  bike = "#D55E00"
+)
+
+
+font_size <- 22
+
 # from process_travel_survery2
-trips_processed %>% 
-  mutate(age_round = floor(age/10)*10) %>% 
-  mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+"))) %>% 
-  select(age_factor, sex,mode, dist) %>%
-  group_by(age_factor, mode,sex) %>% 
-  summarise(n = n(), dist = sum(dist, na.rm = TRUE)) %>%
-  group_by(age_factor,sex) %>%
-  mutate(share_trips = n/sum(n), share_dist = dist/sum(dist)) %>% 
-  mutate(Mode = factor(mode, levels = c("bike","walk","ride","car"))) %>% 
-  mutate(sex = factor(sex, levels = c("Male","Female"),labels = c("Male","Female"))) %>% 
-  ggplot() +
-  geom_col(aes(age_factor,share_trips,fill = Mode)) +
-  facet_grid(~sex) +
-  theme_minimal(base_size = 14) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  labs(x = "Age Group", y = "Modal Split (Trip-Based)")
+mode_share_ref <- trips_processed %>% 
+  mutate(
+    age_factor = case_when(
+      age < 18 ~ "0-17",
+      age < 30 ~ "18-29",
+      age < 45 ~ "30-44",
+      age < 65 ~ "45-64",
+      age < 75 ~ "65-74",
+      age < 85 ~ "75-84",
+      .default = "85+"
+    ),
+    age_factor = factor(
+      age_factor,
+      levels = c("0-17", "18-29", "30-44", "45-64", "65-74", "75-84", "85+")
+    )
+  ) %>% 
+  select(age_factor, sex, mode, dist) %>%
+  count(age_factor, sex, mode, wt = NULL, name = "n") %>%
+  group_by(age_factor, sex) %>%
+  mutate(share_trips = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    Mode = factor(mode, levels = c("car", "ride", "walk", "bike")),
+    sex = factor(sex, levels = c("Male", "Female"))
+  ) %>% 
+  ggplot(aes(age_factor, share_trips, fill = Mode)) +
+  geom_col(width = 0.85, position = position_stack(reverse = TRUE)) +
+  scale_fill_manual(
+    values = mode_cols,
+    breaks = c("car", "ride", "walk", "bike"),
+    guide = guide_legend(reverse = TRUE)
+  )+
+  facet_grid(rows = vars(sex)) +
+  theme_minimal(base_size = font_size) +
+  labs(
+    x = "Age Group",
+    y = "Modal split (trip-based)",
+    fill = "Mode"
+  ) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+  )
 
-
-trips_base %>% 
+mode_share_base <- trips_base %>% 
   left_join(persons_base, by = "person") %>% 
-  select(main_mode,age_factor,sex) %>% 
-  mutate(car = main_mode == "car", walk = main_mode == "walk", ride = main_mode == "ride", bike = main_mode == "bike") %>%
-  group_by(age_factor,sex) %>%
-  summarise(car = sum(car)/n(), ride = sum(ride)/n(), walk = sum(walk)/n(), bike = sum(bike)/n()) %>% 
-  pivot_longer(cols = -c(age_factor,sex), names_to = "mode", values_to = "share") %>% 
-  mutate(sex = factor(sex, levels = c("m","f"),labels = c("Male","Female"))) %>% 
-  mutate(Mode = factor(mode, levels = c("bike","walk","ride","car"))) %>% 
-  ggplot() + 
-  geom_col(aes(age_factor, share, fill = Mode)) + 
-  facet_grid(~sex) +
-  theme_minimal(base_size = 14)+
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  labs(x = "Age Group", y = "Modal Split (Trip-Based)")
+  count(age_factor, sex, main_mode) %>%
+  group_by(age_factor, sex) %>%
+  mutate(share = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    sex = factor(sex, levels = c("m", "f"), labels = c("Male", "Female")),
+    Mode = factor(main_mode, levels = c("car", "ride", "walk", "bike"))
+  ) %>%
+  ggplot(aes(age_factor, share, fill = Mode)) + 
+  geom_col(width = 0.85, position = position_stack(reverse = TRUE)) + 
+  facet_grid(rows = vars(sex))  +
+  scale_fill_manual(
+    values = mode_cols,
+    breaks = c("car", "ride", "walk", "bike"),
+    guide = guide_legend(reverse = TRUE)
+  )+
+  theme_minimal(base_size = font_size) +
+  labs(x = "Age Group", y = "Modal split (trip-based)", fill = "Mode") +
+  theme(
+  panel.grid.major.x = element_blank(),
+  panel.grid.minor = element_blank(),
+  axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+)
 
-trips_policy %>% 
+
+mode_share_policy <- trips_policy %>% 
   left_join(persons_policy, by = "person") %>% 
-  select(main_mode,age_factor,sex) %>% 
-  mutate(car = main_mode == "car", walk = main_mode == "walk", ride = main_mode == "ride", bike = main_mode == "bike") %>%
-  group_by(age_factor,sex) %>%
-  summarise(car = sum(car)/n(), ride = sum(ride)/n(), walk = sum(walk)/n(), bike = sum(bike)/n()) %>% 
-  pivot_longer(cols = -c(age_factor,sex), names_to = "mode", values_to = "share") %>% 
-  mutate(sex = factor(sex, levels = c("m","f"),labels = c("Male","Female"))) %>% 
-  mutate(Mode = factor(mode, levels = c("bike","walk","ride","car"))) %>% 
-  ggplot() + 
-  geom_col(aes(age_factor, share, fill = Mode)) + 
-  facet_grid(~sex) +
-  theme_minimal(base_size = 14)+
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
-  labs(x = "Age Group", y = "Modal Split (Trip-Based)")
+  count(age_factor, sex, main_mode) %>%
+  group_by(age_factor, sex) %>%
+  mutate(share = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    sex = factor(sex, levels = c("m", "f"), labels = c("Male", "Female")),
+    Mode = factor(main_mode, levels = c("car", "ride", "walk", "bike"))
+  ) %>%
+  ggplot(aes(age_factor, share, fill = Mode)) + 
+  geom_col(width = 0.85, position = position_stack(reverse = TRUE)) + 
+  facet_grid(rows = vars(sex))  +
+  scale_fill_manual(
+    values = mode_cols,
+    breaks = c("car", "ride", "walk", "bike"),
+    guide = guide_legend(reverse = TRUE)
+  )+
+  theme_minimal(base_size = font_size) +
+  labs(x = "Age Group", y = "Modal split (trip-based)", fill = "Mode") +
+  theme(
+  panel.grid.major.x = element_blank(),
+  panel.grid.minor = element_blank(),
+  axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+)
+
+mode_share_ref
+mode_share_base
+mode_share_policy
+
+ggsave(
+  "mode_share_ref.png",
+  mode_share_ref,
+  width = 8,
+  height = 6
+)
+
+ggsave(
+  "mode_share_base.png",
+  mode_share_base,
+  width = 8,
+  height = 6
+)
+
+
+ggsave(
+  "mode_share_policy.png",
+  mode_share_policy,
+  width = 8,
+  height = 6
+)
 ```
 
 trip time
@@ -125,7 +218,7 @@ trips_base %>%
 trips_policy %>% 
   left_join(persons_policy, by = "person") %>% 
   select(trav_time,age_factor,sex) %>% 
-  group_by(age_factor,sex) %>%
+  group_by(age_factor,sex) %>% 
   summarise(trav_time = mean(trav_time)) %>% 
   mutate(sex = factor(sex, levels = c("m","f"),labels = c("Male","Female"))) %>%
   ggplot() + 
@@ -135,22 +228,277 @@ trips_policy %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1))+
   labs(title = "Policy",x = "Age Group", y = "Travel Time Per Trip")
 
+
 ```
 
+```{r}
+library(tidyverse)
+library(lubridate)
+library(ggalluvial)
+
+switches <- trips_base %>%
+  select(trip_id, person, trip_number,
+         Mode = main_mode,
+         trav_time_base = trav_time) %>%
+  inner_join(
+    trips_policy %>%
+      select(trip_id, person, trip_number,
+             mode_policy = main_mode,
+             trav_time_policy = trav_time),
+    by = c("trip_id", "person", "trip_number")
+  ) %>% 
+  left_join(persons_base %>% select(person,age)) %>% filter(age >=75) %>% 
+  mutate(
+    tt_base_min = period_to_seconds(hms(as.character(trav_time_base))) / 60,
+    tt_policy_min = period_to_seconds(hms(as.character(trav_time_policy))) / 60,
+    tt_diff_min = tt_policy_min - tt_base_min,
+    switch = paste(Mode, "→", mode_policy)
+  )
+
+
+switch_summary <- switches %>%
+  count(Mode, mode_policy, name = "n_trips") %>%
+  group_by(Mode) %>%
+  mutate(share = n_trips / sum(n_trips)) %>%
+  ungroup()
+
+
+ggplot(
+  switch_summary,
+  aes(axis1 = Mode, axis2 = mode_policy, y = n_trips)
+) +
+  geom_alluvium(aes(fill = Mode), alpha = 0.7, width = 0.25) +
+
+  geom_stratum(
+    aes(fill = after_stat(stratum)),
+    width = 0.25
+  ) +
+
+  geom_text(
+    stat = "stratum",
+    aes(label = after_stat(stratum))
+  ) +
+
+  scale_fill_manual(
+    values = mode_cols,
+    breaks = c("car", "ride", "walk", "bike")
+  ) +
+
+  scale_x_discrete(
+    limits = c("Base", "Policy"),
+    expand = c(.1, .1)
+  ) +
+
+  labs(
+    x = NULL,
+    y = "Number of Trips",
+    fill = "Mode"
+  ) +
+
+  theme_minimal(base_size = 22)
+
+
+ggplot(switches,
+       aes(x = reorder(switch, tt_diff_min, median),
+           y = tt_diff_min)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_boxplot(outlier.alpha = 0.2) +
+  coord_flip() +
+  labs(
+    x = "Mode switch",
+    y = "Policy - base travel time [min]",
+    title = "Travel-time change by mode switch"
+  ) +
+  theme_minimal()
+
+switches %>%
+  group_by(Mode, mode_policy) %>%
+  summarise(
+    n_trips = n(),
+    mean_tt_change_min = mean(tt_diff_min, na.rm = TRUE),
+    median_tt_change_min = median(tt_diff_min, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_trips))
+```
 
 score
 ```{r}
-score_base <- persons_base %>% group_by(sex,age_factor) %>% summarise(score = mean(executed_score)) 
+
+score_combined <- persons_base %>% select(person,Sex = sex,age_factor,home_x,home_y,zone, score_base = executed_score) %>%  left_join(persons_policy %>% select(person, score_policy = executed_score), by = "person") %>% mutate(score_diff=score_policy - score_base)
+
+score_combined_summ <- score_combined %>% group_by(Sex,age_factor) %>% summarise(score_base= mean(score_base),score_policy = mean(score_policy), score_diff = mean(score_diff)) 
+
+# score_base <- persons_base %>% group_by(sex,age_factor) %>% summarise(score = mean(executed_score)) 
 # score_base
 
-ggplot(score_base,aes(age_factor, score, fill = sex)) + geom_col(position = "dodge") + labs(title = "base")
+# ggplot(score_combined_summ,aes(age_factor, score_base, fill = Sex)) + geom_col(position = "dodge") + labs(title = "base")
 
-score_policy <- persons_policy %>% group_by(sex,age_factor) %>% summarise(score = mean(executed_score))
+# score_policy <- persons_policy %>% group_by(sex,age_factor) %>% summarise(score = mean(executed_score))
 # score_policy
 
-ggplot(score_policy,aes(age_factor, score, fill = sex)) + geom_col(position = "dodge")+ labs(title = "policy")
+# ggplot(score_combined_summ,aes(age_factor, score_policy, fill = Sex)) + geom_col(position = "dodge")+ labs(title = "policy")
 
 
-left_join(score_base,score_policy, by = c("age_factor","sex")) %>% mutate(score_diff = score.y-score.x) %>% 
-  ggplot() + geom_col(aes(age_factor,score_diff,fill = sex), position = "dodge")
+ggplot(score_combined_summ %>% mutate(Sex = factor(Sex, levels = c("f","m"), labels = c("Female","Male")))) + geom_col(aes(age_factor,score_diff,fill = Sex), position = "dodge") + theme_minimal(base_size = 20) + labs(x = "Age", y = "Policy − Base Score (utils)") +   theme( axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    ))
+
+
+# ggplot(score_combined_summ) + geom_col(aes(age_factor,score_diff,fill = Sex), position = "dodge") + theme_minimal(base_size = 14) + labs(x = "Age", y = "Policy − Base Score (utils)")
+
+# gunma_shp_landuse from analyse_accessibility.Rmd
+score_combined %>% 
+  left_join(gunma_shp_landuse) %>%
+  filter(!is.na(landuse)) %>% 
+  group_by(Sex,age_factor,landuse) %>%
+  summarise(score_base= mean(score_base),score_policy = mean(score_policy), score_diff = mean(score_diff)) %>%
+  ggplot() + 
+  geom_col(aes(age_factor,score_diff,fill = Sex), position = "dodge") + 
+  theme_minimal(base_size = 14) + labs(x = "Age", y = "Policy − Base Score (utils)") + 
+  facet_grid(~landuse)
+  
+
+
+# left_join(score_base,score_policy, by = c("age_factor","sex")) %>% mutate(score_diff = score.y-score.x, Sex = sex) %>% 
+#   ggplot() + geom_col(aes(age_factor,score_diff,fill = Sex), position = "dodge") + theme_minimal(base_size = 14) + labs(x = "Age", y = "Policy − Base Score (utils)")
+
+
+# worst10 <- score_combined %>% filter(age_factor %in% c("75-84","85+")) %>% st_as_sf(coords = c("home_x","home_y"), crs=2450) %>% arrange(score_diff) %>% slice(1:floor(n() * 0.1))
+# 
+# top10  <- score_combined %>% filter(age_factor %in% c("75-84","85+")) %>% st_as_sf(coords = c("home_x","home_y"), crs=2450) %>% arrange(-score_diff) %>% slice(1:floor(n() * 0.1)) 
+# 
+#   tm_shape(worst10) + tm_dots(fill = "red") + tm_shape(top10) + tm_dots(fill = "green")
+
+# pts <- score_combined %>%
+#   filter(age_factor %in% c("75-84", "85+")) %>%
+#   st_as_sf(coords = c("home_x", "home_y"), crs = 2450)
+# 
+# hex <- st_make_grid(
+#   pts,
+#   cellsize = 5000,
+#   square = FALSE
+# ) %>%
+#   st_sf() %>%
+#   st_join(pts) %>%
+#   group_by(geometry) %>%
+#   summarise(
+#     score_diff = mean(score_diff, na.rm = TRUE),
+#     n = n()
+#   )
+# 
+# tm_shape(hex) +
+#   tm_polygons(
+#     fill = "score_diff",
+#     fill.scale = tm_scale_continuous(
+#       values = "-RdBu"
+#     )
+#   )
+
+
+
 ```
+
+
+
+```{r}
+
+dist_levels <- c(
+  "0 - 1000", "1000 - 2000", "2000 - 5000",
+  "5000 - 10000", "10000 - 20000", "20000+"
+)
+
+mode_share_dist <- bind_rows(
+
+  trips_processed %>%
+    select(Mode = mode, dist_group) %>%
+    mutate(dataset = "Ref"),
+
+  trips_base %>%
+    mutate(
+      dist_group = case_when(
+        traveled_distance < 1000 ~ "0 - 1000",
+        traveled_distance < 2000 ~ "1000 - 2000",
+        traveled_distance < 5000 ~ "2000 - 5000",
+        traveled_distance < 10000 ~ "5000 - 10000",
+        traveled_distance < 20000 ~ "10000 - 20000",
+        .default = "20000+"
+      )
+    ) %>%
+    select(Mode = main_mode, dist_group) %>%
+    mutate(dataset = "Base")
+
+) %>%
+  mutate(
+    dist_group = factor(dist_group, levels = dist_levels),
+    dataset = factor(dataset, levels = c("Ref", "Base")),
+    Mode = factor(Mode, levels = c("car", "ride", "walk", "bike"))
+  ) %>%
+  count(dist_group, dataset, Mode) %>%
+  group_by(dist_group, dataset) %>%
+  mutate(share_trips = n / sum(n)) %>%
+  ungroup()
+
+mode_share_dist <- mode_share_dist %>%
+  mutate(
+    dist_group = factor(
+      dist_group,
+      levels = dist_levels,
+      labels = c(
+        "<1",
+        "1–2",
+        "2–5",
+        "5–10",
+        "10–20",
+        "20+"
+      )
+    )
+  )
+
+ggplot(
+  mode_share_dist,
+  aes(dataset, share_trips, fill = Mode)
+) +
+  geom_col(
+    width = 0.85,
+    position = position_stack(reverse = TRUE)
+  ) +
+  facet_grid(. ~ dist_group, scales = "free_x", space = "free_x",switch = "x") +
+  scale_fill_manual(
+    values = mode_cols,
+    breaks = c("car", "ride", "walk", "bike"),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  theme_minimal(base_size = 20) +
+  labs(
+    x = NULL,
+    y = "Modal split (trip-based)",
+    fill = "Mode"
+  ) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background = element_blank(),
+    panel.spacing.x = unit(0.8, "lines"),
+    strip.placement = "outside",
+    strip.switch.pad.grid = unit(-1, "lines")
+    
+  )+geom_text(
+  aes(label = dataset),
+  y = 0.02,
+  colour = "white",
+  fontface = "bold",
+  size = 4,
+  angle = 90,
+  hjust = 0
+)+
+  
+labs(x = "Trip distance (km)")
+
+
+
+```
+
