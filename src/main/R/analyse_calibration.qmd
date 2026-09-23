@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-## XXX
+## Normal ASC Calibration
 
 download necessary files
 
@@ -15,6 +15,7 @@ download necessary files
 # foldername="2026-05-15b-calibration-1pct-0.02-20"
 
 foldername="2026-05-27b-calibration-10pct-50iter-extended"
+
 
 cluster_dir="mc:/net/ils/rehmann/matsim-gunma/$foldername"
 local_dir="$foldername"
@@ -43,7 +44,7 @@ library(yaml)
 local_dir <- "2026-05-27b-calibration-10pct-50iter-extended"
 
 
-# local_dir <- "tmp"
+
 ```
 
 ```{r}
@@ -92,4 +93,581 @@ df_mode %>%
   geom_point(data = goal, mapping = aes(run, share, col = mode)) +
   scale_x_continuous(breaks = seq(0,20, by = 1), minor_breaks = NULL)
 
+```
+
+# Age Based ASC Calibration
+
+```{bash}
+
+
+foldername="2026-08-31a-calib-age-1pct-50iter"
+
+cluster_dir="mc:/net/ils/rehmann/matsim-gunma/$foldername"
+local_dir="$foldername"
+
+mkdir -p "$local_dir"
+
+scp "$cluster_dir"/params/*.yaml "$local_dir"/
+# scp "$cluster_dir"/runs/*/*.modestats.csv "$local_dir"/
+# scp "$cluster_dir"/runs/*/*.output_trips.csv.gz "$local_dir"/
+# scp "$cluster_dir"/runs/*/*.output_persons.csv.gz "$local_dir"/
+
+```
+
+libraries
+
+```{r}
+library(tidyverse)
+library(yaml)
+
+local_dir <- "2026-08-31a-calib-age-1pct-50iter"
+
+```
+
+```{r}
+files <- list.files(local_dir, pattern = "\\.ya?ml$", full.names = TRUE)
+configs <- lapply(files, read_yaml)
+
+rows <- list()
+k <- 1
+
+for (runNum in seq_along(configs)) {
+  scoring_parameters <- configs[[runNum]]$advancedScoring$scoringParameters
+
+  for (groupNum in seq_along(scoring_parameters)) {
+    age_group <- scoring_parameters[[groupNum]]$age_group
+    mode_params <- scoring_parameters[[groupNum]]$modeParams
+
+    for (modeNum in seq_along(mode_params)) {
+      mode <- mode_params[[modeNum]]$mode
+      asc <- mode_params[[modeNum]]$deltaConstant
+
+      rows[[k]] <- data.frame(
+        run = runNum - 1,
+        age_group = age_group,
+        mode = mode,
+        asc = asc,
+        stringsAsFactors = FALSE
+      )
+
+      k <- k + 1
+    }
+  }
+}
+df <- do.call(rbind, rows)
+
+ggplot(df) +
+  geom_line(aes(run, asc, colour = mode, group = interaction(age_group, mode))) +
+  facet_wrap(~ age_group) +
+  scale_x_continuous(
+    breaks = seq(0, 20, by = 1),
+    minor_breaks = NULL
+  )
+```
+
+Age-Based Modal split.
+
+```{r}
+# Age-based modal split from the persons and trips output of each calibration run
+modes <- c("walk", "car", "ride", "bike")
+age_groups <- c("0-17", "18-29", "30-44", "45-64", "65-74", "75-84", "85+")
+
+age_group <- function(age) {
+  case_when(
+    is.na(age) ~ NA,
+    age < 18 ~ "0-17",
+    age < 30 ~ "18-29",
+    age < 45 ~ "30-44",
+    age < 65 ~ "45-64",
+    age < 75 ~ "65-74",
+    age < 85 ~ "75-84",
+    TRUE ~ "85+"
+  )
+}
+
+persons_files <- sort(list.files(
+  local_dir,
+  pattern = "\\.output_persons\\.csv\\.gz$",
+  full.names = TRUE
+))
+trips_files <- sort(list.files(
+  local_dir,
+  pattern = "\\.output_trips\\.csv\\.gz$",
+  full.names = TRUE
+))
+
+stopifnot(length(persons_files) == length(trips_files))
+
+simulated_age_split <- map_dfr(seq_along(persons_files), function(runNum) {
+  persons <- read_delim(persons_files[[runNum]], show_col_types = FALSE) %>%
+    select(person, age) %>%
+    distinct(person, .keep_all = TRUE) %>%
+    mutate(age_group = factor(age_group(age), levels = age_groups))
+  
+  persons |> glimpse()
+
+  trips <- read_delim(trips_files[[runNum]], show_col_types = FALSE) %>%
+    select(person, main_mode) %>%
+    filter(main_mode %in% modes) %>%
+    inner_join(persons, by = "person")
+
+  trips %>%
+    count(age_group, main_mode, name = "n") %>%
+    complete(
+      age_group = age_groups,
+      main_mode = modes,
+      fill = list(n = 0)
+    ) %>%
+    group_by(age_group) %>%
+    mutate(
+      run = runNum - 1,
+      share = n / sum(n)
+    ) %>%
+    ungroup()
+})
+
+# The reference file contains shares by distance group. Aggregate over distance
+# and renormalize so that the four modal shares sum to one within each age group.
+target_age_split <- read_csv(
+  "resources/mode_share_per_group_dist_ref.csv",
+  show_col_types = FALSE
+) %>%
+  mutate(
+    age_group = recode(
+      age,
+      `0 - 17` = "0-17",
+      `18 - 29` = "18-29",
+      `30 - 44` = "30-44",
+      `45 - 64` = "45-64",
+      `65 - 74` = "65-74",
+      `75 - 84` = "75-84",
+      `85+` = "85+",
+      .default = NA_character_
+    )
+  ) %>%
+  filter(!is.na(age_group), main_mode %in% modes) %>%
+  group_by(age_group, main_mode) %>%
+  summarise(share = sum(share), .groups = "drop") %>%
+  group_by(age_group) %>%
+  mutate(share = share / sum(share)) %>%
+  ungroup()
+
+# Put the target dots at the final calibration run for direct comparison.
+target_age_split <- target_age_split %>%
+  mutate(run = max(simulated_age_split$run))
+
+ggplot(simulated_age_split) +
+  geom_line(aes(run, share, colour = main_mode, group = main_mode)) +
+  geom_point(
+    data = target_age_split,
+    aes(run, share, colour = main_mode),
+    shape = 4,
+    size = 2.5,
+    stroke = 1.1
+  ) +
+  facet_wrap(~ age_group) +
+  scale_x_continuous(
+    breaks = seq(0, max(simulated_age_split$run), by = 1),
+    minor_breaks = NULL
+  ) +
+  labs(
+    x = "Calibration run",
+    y = "Modal split",
+    colour = "Mode",
+    subtitle = "Lines: simulated shares; crosses: reference target"
+  )
+
+```
+
+```{r}
+# Stacked age-group modal split: reference, iteration 0, and final iteration
+mode_cols <- c(
+  car = "#0072B2",
+  ride = "#009E73",
+  walk = "#E69F00",
+  bike = "#D55E00"
+)
+
+font_size <- 22
+
+first_iteration <- min(simulated_age_split$run)
+last_iteration <- max(simulated_age_split$run)
+
+modal_split_comparison <- bind_rows(
+  target_age_split %>%
+    transmute(
+      age_group,
+      main_mode,
+      share,
+      scenario = "Reference"
+    ),
+  simulated_age_split %>%
+    filter(run == first_iteration) %>%
+    transmute(
+      age_group,
+      main_mode,
+      share,
+      scenario = "Iteration 0"
+    ),
+  simulated_age_split %>%
+    filter(run == last_iteration) %>%
+    transmute(
+      age_group,
+      main_mode,
+      share,
+      scenario = "Last iteration"
+    )
+) %>%
+  mutate(
+    age_group = factor(age_group, levels = age_groups),
+    Mode = factor(main_mode, levels = c("car", "ride", "walk", "bike")),
+    scenario = factor(
+      scenario,
+      levels = c("Reference", "Iteration 0", "Last iteration")
+    )
+  )
+
+ggplot(modal_split_comparison, aes(age_group, share, fill = Mode)) +
+  geom_col(width = 0.85, position = position_stack(reverse = TRUE)) +
+  facet_wrap(~ scenario, nrow = 1) +
+  scale_fill_manual(
+    values = mode_cols,
+    breaks = c("car", "ride", "walk", "bike"),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 1, by = 0.2)
+  ) +
+  coord_cartesian(ylim = c(0, 1))+
+  theme_minimal(base_size = font_size) +
+  labs(
+    x = "Age Group",
+    y = "Modal split (trip-based)",
+    fill = "Mode"
+  ) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)
+  )
+```
+
+# NEW PLOTS FOR EWGT PAPER
+
+```{r}
+persons_base <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.8/2026-05-27f-basePolicy-rawdog/output-base/gunma.output_persons.csv.gz") %>%  
+  filter(!str_starts(person,"commuter")) %>%
+  mutate(age_factor = case_when(age <18 ~ "0-17", age < 30 ~ "18-29", age <45 ~ "30-44", age <65 ~ "45-64", age <75 ~ "65-74", age < 85 ~ "75-84", .default = "85+")) 
+  # mutate(age_round = floor(age/10)*10) %>% 
+  # mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+")))
+
+trips_base <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.8/2026-05-27f-basePolicy-rawdog/output-base/gunma.output_trips.csv.gz") %>%  
+  filter(!str_starts(person,"commuter")) 
+
+
+mode_share_v1_age_sex <- trips_base %>% 
+  left_join(persons_base, by = "person") %>% 
+  count(age_factor, sex, main_mode) %>%
+  group_by(age_factor, sex) %>%
+  mutate(share = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    sex = factor(sex, levels = c("m", "f"), labels = c("Male", "Female")),
+    Mode = factor(main_mode, levels = c("car", "ride", "walk", "bike")),
+    scenario = "Model v1"
+  )|> rename(age_group = age_factor) |> select (-n)
+
+mode_share_v1_age <- trips_base %>% 
+  left_join(persons_base, by = "person") %>% 
+  count(age_factor, main_mode) %>%
+  group_by(age_factor) %>%
+  mutate(share = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    Mode = factor(main_mode, levels = c("car", "ride", "walk", "bike")),
+    scenario = "Model v1"
+  ) |> rename(age_group = age_factor) |> select (-n)
+
+```
+
+by age only 
+
+```{r}
+# Stacked bars with Model, Model v2, and Ref side by side within each age group
+# Model = the first calibration run; Model v2 = the final calibration run.
+
+mode_share_v1 |> view()
+modal_split_side_by_side_v1 <- modal_split_comparison %>% 
+  filter(scenario !="Iteration 0") |> 
+  bind_rows(mode_share_v1_age) |> 
+  mutate(
+    scenario = recode(
+      scenario,
+      "Reference" = "Reference",
+      "Model v1" = "Model v1",
+      "Last iteration" = "Model v2"
+    )) |> 
+    filter(scenario != "Model v2") |> 
+    mutate(scenario = factor(scenario, levels = c("Model v1","Reference"))) |> 
+    filter(!is.na(age_group)) 
+
+scenario_labels_v1 <- modal_split_side_by_side_v1 %>%
+  distinct(age_group, scenario)
+
+ggplot(
+  modal_split_side_by_side_v1 |> mutate(scenario = factor(scenario, levels = c("Model v1", "Reference"))),
+  aes(scenario, share, fill = Mode)
+) +
+  geom_col(
+    width = 0.85,
+    position = position_stack(reverse = TRUE)
+  ) +
+  geom_text(
+    data = scenario_labels_v1,
+    inherit.aes = FALSE,
+    mapping = aes(
+      x = scenario,
+      y = 0.02,
+      label = scenario
+    ),
+    colour = "white",
+    fontface = "bold",
+    size = 6,
+    angle = 90,
+    hjust = 0,
+    show.legend = FALSE
+  ) +
+  facet_grid(
+    . ~ age_group,
+    scales = "free_x",
+    space = "free_x",
+    switch = "x"
+  ) +
+  scale_fill_manual(
+    values = mode_cols,
+    breaks = c("car", "ride", "walk", "bike"),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 1, by = 0.2)
+  ) +
+  coord_cartesian(ylim = c(0, 1))+
+  theme_minimal(base_size = font_size) +
+  labs(
+    x = "Age Group",
+    y = "Modal split (trip-based)",
+    fill = "Mode"
+  ) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background = element_blank(),
+    panel.spacing.x = unit(0.8, "lines"),
+    strip.placement = "outside",
+    strip.switch.pad.grid = unit(-1, "lines")
+  )
+
+ggsave(
+  "modal_split_age_ref_v1.png",
+  width = 9,
+  height = 6
+)
+
+ggplot(
+  modal_split_side_by_side,
+  aes(scenario, share, fill = Mode)
+) +
+  geom_col(
+    width = 0.85,
+    position = position_stack(reverse = TRUE)
+  ) +
+  geom_text(
+    data = scenario_labels,
+    inherit.aes = FALSE,
+    mapping = aes(
+      x = scenario,
+      y = 0.02,
+      label = scenario
+    ),
+    colour = "white",
+    fontface = "bold",
+    size = 6,
+    angle = 90,
+    hjust = 0,
+    show.legend = FALSE
+  ) +
+  facet_grid(
+    . ~ age_group,
+    scales = "free_x",
+    space = "free_x",
+    switch = "x"
+  ) +
+  scale_fill_manual(
+    values = mode_cols,
+    breaks = c("car", "ride", "walk", "bike"),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  scale_y_continuous(
+    breaks = seq(0, 1, by = 0.2)
+  ) +
+  coord_cartesian(ylim = c(0, 1))+
+  theme_minimal(base_size = font_size) +
+  labs(
+    x = "Age Group",
+    y = "Modal split (trip-based)",
+    fill = "Mode"
+  ) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background = element_blank(),
+    panel.spacing.x = unit(0.8, "lines"),
+    strip.placement = "outside",
+    strip.switch.pad.grid = unit(-1, "lines")
+  )
+
+ggsave(
+  "modal_split_age_ref_v1_v2.png",
+  width = 12,
+  height = 6
+)
+```
+
+with sex 
+```{r}
+# Sex-specific modal split plots.
+# The calibration outputs contain sex for each person. The reference file does
+# not contain sex, so the overall reference shares are shown in both plots as
+# a common benchmark rather than as sex-specific reference values.
+simulated_sex_split <- map_dfr(
+  c(first_iteration, last_iteration),
+  function(run_to_use) {
+    persons <- read_delim(
+      persons_files[[run_to_use + 1]],
+      show_col_types = FALSE
+    ) %>%
+      select(person, age, sex) %>%
+      distinct(person, .keep_all = TRUE) %>%
+      mutate(age_group = factor(age_group(age), levels = age_groups))
+
+    read_delim(
+      trips_files[[run_to_use + 1]],
+      show_col_types = FALSE
+    ) %>%
+      select(person, main_mode) %>%
+      filter(main_mode %in% modes) %>%
+      inner_join(persons, by = "person") %>%
+      count(age_group, sex, main_mode, name = "n") %>%
+      complete(
+        age_group = age_groups,
+        sex = c("m", "f"),
+        main_mode = modes,
+        fill = list(n = 0)
+      ) %>%
+      group_by(age_group, sex) %>%
+      mutate(
+        share = n / sum(n),
+        scenario = if_else(run_to_use == first_iteration, "Model", "Model v2")
+      ) %>%
+      ungroup()
+  }
+)
+
+sex_modal_split_comparison <- bind_rows(
+  simulated_sex_split %>%
+    transmute(age_group, sex, main_mode, share, scenario),
+  target_age_split %>%
+    transmute(
+      age_group,
+      sex = c("m", "f")[1],
+      main_mode,
+      share,
+      scenario = "Reference"
+    ),
+  target_age_split %>%
+    transmute(
+      age_group,
+      sex = c("m", "f")[2],
+      main_mode,
+      share,
+      scenario = "Reference"
+    )
+) %>%
+  mutate(
+    age_group = factor(age_group, levels = age_groups),
+    sex = factor(sex, levels = c("m", "f"), labels = c("Male", "Female")),
+    Mode = factor(main_mode, levels = c("car", "ride", "walk", "bike"))
+  ) |> 
+  filter(scenario != "Model") |> 
+  bind_rows(mode_share_v1_age_sex) |> 
+  mutate(scenario = factor(scenario, levels = c("Model v1", "Model v2", "Reference"))) |> view()
+  
+
+plot_sex_modal_split <- function(sex_to_plot) {
+  plot_data <- sex_modal_split_comparison %>%
+    filter(sex == sex_to_plot)
+
+  plot_labels <- plot_data %>%
+    distinct(age_group, scenario)
+
+  ggplot(plot_data, aes(scenario, share, fill = Mode)) +
+    geom_col(
+      width = 0.85,
+      position = position_stack(reverse = TRUE)
+    ) +
+    geom_text(
+      data = plot_labels,
+      aes(x = scenario, y = 0.02, label = scenario),
+      inherit.aes = FALSE,
+      colour = "white",
+      fontface = "bold",
+      size = 5,
+      angle = 90,
+      hjust = 0,
+      show.legend = FALSE
+    ) +
+    facet_grid(
+      . ~ age_group,
+      scales = "free_x",
+      space = "free_x",
+      switch = "x"
+    ) +
+    scale_fill_manual(
+      values = mode_cols,
+      breaks = c("car", "ride", "walk", "bike"),
+      guide = guide_legend(reverse = TRUE)
+    ) +
+    scale_y_continuous(breaks = seq(0, 1, by = 0.2)) +
+    coord_cartesian(ylim = c(0, 1)) +
+    theme_minimal(base_size = font_size) +
+    labs(
+      x = "Age Group",
+      y = "Modal split (trip-based)",
+      fill = "Mode",
+      title = sex_to_plot
+    ) +
+    theme(
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor = element_blank(),
+      strip.background = element_blank(),
+      panel.spacing.x = unit(0.8, "lines"),
+      strip.placement = "outside",
+      strip.switch.pad.grid = unit(-1, "lines")
+    )
+}
+
+mode_share_men <- plot_sex_modal_split("Male")
+mode_share_women <- plot_sex_modal_split("Female")
+
+mode_share_men
+mode_share_women
+
+ggsave("modal_split_men.png", mode_share_men, width = 8, height = 6)
+ggsave("modal_split_women.png", mode_share_women, width = 8, height = 6)
 ```

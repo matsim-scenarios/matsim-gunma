@@ -115,7 +115,12 @@ commuters_to_gunma %>% st_filter(env75,.predicate = sf::st_within) %>% st_drop_g
 commuters_to_gunma %>% st_filter(env50,.predicate = sf::st_within) %>% st_drop_geometry() %>%  summarise(n = sum(n))
   
 tmap_mode("plot")
-tm_basemap("Esri.WorldGrayCanvas") + 
+
+# maptiler_url <- "https://api.maptiler.com/tiles/satellite-v4/{z}/{x}/{y}.jpg?key=UXMqb3JQs0nlQCiBDiMX"
+
+tm_basemap(maptiler_url)
+tm_basemap("Esri.WorldGrayCanvas") +
+tm_basemap(maptiler_url) + 
 tm_shape(commuters_to_gunma) +
   tm_polygons(
     color = NA,

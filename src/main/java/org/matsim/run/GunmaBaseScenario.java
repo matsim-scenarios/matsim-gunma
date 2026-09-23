@@ -22,6 +22,8 @@ import org.matsim.core.population.PersonUtils;
 import org.matsim.core.replanning.strategies.DefaultPlanStrategiesModule;
 import org.matsim.core.router.TripStructureUtils;
 import org.matsim.core.router.costcalculators.TravelDisutilityFactory;
+import org.matsim.run.scoring.experimental.AdvancedScoringConfigGroup;
+import org.matsim.run.scoring.experimental.AdvancedScoringModule;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 import picocli.CommandLine;
 
@@ -55,7 +57,7 @@ public class GunmaBaseScenario extends MATSimApplication {
 
 	/** Creates the base scenario using the canonical Gunma config path. */
 	public GunmaBaseScenario() {
-		super(ConfigUtils.loadConfig(GunmaDefaults.configPath()));
+		super(ConfigUtils.loadConfig(GunmaDefaults.configPath(), new AdvancedScoringConfigGroup()));
 	}
 
 	/**
@@ -149,6 +151,31 @@ public class GunmaBaseScenario extends MATSimApplication {
 			if (person.getId().toString().startsWith("commuter")) {
 				PersonUtils.setCarAvail(person, "always");
 			}
+
+			Integer age = PersonUtils.getAge(person);
+
+			if (age == null) {
+				continue;
+			}
+
+			String ageGroup;
+			if (age < 18) {
+				ageGroup = "0-17";
+			} else if (age < 30) {
+				ageGroup = "18-29";
+			} else if (age < 45) {
+				ageGroup = "30-44";
+			} else if (age < 65) {
+				ageGroup = "45-64";
+			} else if (age < 75) {
+				ageGroup = "65-74";
+			} else if (age < 85) {
+				ageGroup = "75-84";
+			} else {
+				ageGroup = "85+";
+			}
+
+			person.getAttributes().putAttribute("age_group", ageGroup);
 		}
 	}
 
@@ -165,6 +192,8 @@ public class GunmaBaseScenario extends MATSimApplication {
 	protected Config prepareConfig(Config config) {
 
 		configureCommonConfig(config);
+		ConfigUtils.addOrGetModule(config, AdvancedScoringConfigGroup.class).incomeDependent =
+			AdvancedScoringConfigGroup.IncomeDependentScoring.none;
 		configureCommonActivityScoring(config);
 		config.controller().setLastIteration(500);
 //		config.routing().removeTeleportedModeParams(TransportMode.ride);
@@ -221,6 +250,7 @@ public class GunmaBaseScenario extends MATSimApplication {
 	@Override
 	protected void prepareControler(Controler controler) {
 		prepareCommonControler(controler);
+		controler.addOverridingModule(new AdvancedScoringModule());
 	}
 
 	/**

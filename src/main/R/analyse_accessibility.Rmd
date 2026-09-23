@@ -391,13 +391,14 @@ xxx <- persons_processed_summarised %>%
   mutate(Sex = factor(sex, levels = c("f","m"), labels = c("Female","Male")))
 
 
-fig_urban <- ggplot(xxx %>% filter(landuse == "Urban")) + geom_col(aes(age_factor,accessibility, fill = Sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
+# NOTE: I filtered scenario, this needs to be removed again
+fig_urban <- ggplot(xxx %>% filter(landuse == "Urban") %>% filter(scenario %in% c("Base Case","Policy\nMobility"))) + geom_col(aes(age_factor,accessibility, fill = Sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
     panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
     panel.spacing.x = unit(0.8, "lines")
   ) + ylim(-125,0) + theme(legend.position = "bottom")
    
   
-fig_rural <- ggplot(xxx %>% filter(landuse == "Rural")) + geom_col(aes(age_factor,accessibility, fill = Sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
+fig_rural <- ggplot(xxx %>% filter(landuse == "Rural") %>% filter(scenario %in% c("Base Case","Policy\nMobility"))) + geom_col(aes(age_factor,accessibility, fill = Sex), position = "dodge")+ labs(x = "Age", y = "Accessibility")  + theme_minimal(base_size = 14) + facet_grid(~scenario,scales = "free_x", space = "free_x")+ theme(
     panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.6),
     panel.spacing.x = unit(0.8, "lines")
   ) + ylim(-125,0)+ theme(legend.position = "bottom")

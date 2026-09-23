@@ -48,7 +48,14 @@ trips_policy <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gu
 ```
 carAvail
 ```{r}
-persons_base %>% group_by(age_factor, carAvail) %>% count() %>% ungroup() %>% group_by(age_factor) %>%  mutate(share = n/sum(n)) %>% ggplot() + geom_col(aes(age_factor,share, fill = carAvail))
+persons_base %>% 
+  mutate(carAvail = case_when(is.na(carAvail) ~ "never", .default = carAvail)) |>  
+  group_by(age_factor, carAvail) %>% count() %>% 
+  ungroup() %>%
+  group_by(age_factor) %>%  
+  mutate(share = n/sum(n)) %>%
+  mutate(`Car Available` = factor(carAvail, levels = c("never","always"), labels = c("No","Yes"))) |> 
+  ggplot() + geom_col(aes(age_factor,share, fill = `Car Available`)) + theme_minimal(base_size = 14) + labs(x = "Age Group", y = "Share Car Availability")
 
 persons_policy %>% group_by(age_factor, carAvail) %>% count() %>% ungroup() %>% group_by(age_factor) %>%  mutate(share = n/sum(n)) %>% ggplot() + geom_col(aes(age_factor,share, fill = carAvail))
 
@@ -198,6 +205,105 @@ ggsave(
   height = 6
 )
 ```
+
+```{r}
+mode_share_ref_base <- bind_rows(
+
+  trips_processed %>%
+    mutate(
+      age_factor = case_when(
+        age < 18 ~ "0-17",
+        age < 30 ~ "18-29",
+        age < 45 ~ "30-44",
+        age < 65 ~ "45-64",
+        age < 75 ~ "65-74",
+        age < 85 ~ "75-84",
+        .default = "85+"
+      ),
+      dataset = "Ref",
+      Mode = mode
+    ) %>%
+    select(age_factor, sex, Mode, dataset),
+
+  trips_base %>%
+    left_join(persons_base, by = "person") %>%
+    mutate(
+      dataset = "Base",
+      sex = recode(sex, m = "Male", f = "Female"),
+      Mode = main_mode
+    ) %>%
+    select(age_factor, sex, Mode, dataset)
+
+) %>%
+  mutate(
+    age_factor = factor(
+      age_factor,
+      levels = c("0-17", "18-29", "30-44", "45-64",
+                 "65-74", "75-84", "85+")
+    ),
+    sex = factor(sex, levels = c("Male", "Female")),
+    dataset = factor(dataset, levels = c("Ref", "Base")),
+    Mode = factor(Mode, levels = c("car", "ride", "walk", "bike"))
+  ) %>%
+  count(age_factor, sex, dataset, Mode) %>%
+  group_by(age_factor, sex, dataset) %>%
+  mutate(share_trips = n / sum(n)) %>%
+  ungroup()
+
+
+mode_share_ref_base_plot <- ggplot(
+  mode_share_ref_base,
+  aes(dataset, share_trips, fill = Mode)
+) +
+  geom_col(
+    width = 0.85,
+    position = position_stack(reverse = TRUE)
+  ) +
+  facet_grid(
+    rows = vars(sex),
+    cols = vars(age_factor),
+    scales = "free_x",
+    space = "free_x"
+  ) +
+  geom_text(
+    aes(label = dataset),
+    y = 0.02,
+    colour = "white",
+    fontface = "bold",
+    size = 4,
+    angle = 90,
+    hjust = 0
+  ) +
+  scale_fill_manual(
+    values = mode_cols,
+    breaks = c("car", "ride", "walk", "bike"),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  theme_minimal(base_size = font_size) +
+  labs(
+    x = NULL,
+    y = "Modal split (trip-based)",
+    fill = "Mode"
+  ) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.spacing.x = unit(0.8, "lines"),
+    strip.background = element_blank()
+  )
+
+mode_share_ref_base_plot
+
+ggsave(
+  "mode_share_ref_base.png",
+  mode_share_ref_base_plot,
+  width = 12,
+  height = 6
+)
+```
+
 
 trip time
 ```{r}

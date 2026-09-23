@@ -22,6 +22,8 @@ out_75_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/
 
 out_env_00_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/study_area_boundary/gunma_00km_envelope.shp"
 out_env_75_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/study_area_boundary/gunma_75km_envelope.shp"
+out_env_80_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/study_area_boundary/gunma_80km_envelope.shp"
+
 
 out_env_00_poly <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/study_area_boundary/gunma_00km_envelope.poly"
 out_env_75_poly <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/study_area_boundary/gunma_75km_envelope.poly"
@@ -89,10 +91,13 @@ env00 <- gunma_shp %>% st_bbox() %>% st_as_sfc()
 
 env75 <- st_buffer(gunma_shp, dist = 75000)  %>% st_bbox() %>% st_as_sfc()
 
+env80 <- st_buffer(gunma_shp, dist = 80000)  %>% st_bbox() %>% st_as_sfc()
+
 
 # write sf
 write_sf(env00, out_env_00_shp)
 write_sf(env75, out_env_75_shp)
+write_sf(env80, out_env_80_shp)
 
 
 # write poly

@@ -93,7 +93,8 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 		super.prepareConfig(config);
 
 		if (policyCase == PolicyCase.drtOnly || policyCase == PolicyCase.drtOnlyAsTaxi) {
-			config.plans().setInputFile("gunma-v1.6-100pct-plans-filtered85.xml.gz");
+			//todo: update to v1.8
+			config.plans().setInputFile("../v1.6/gunma-v1.6-100pct-plans-filtered85.xml.gz");
 			config.facilities().setInputFile("d1_facilities-all.xml.gz");
 			config.controller().setLastIteration(1);
 			config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.deleteDirectoryIfExists);
