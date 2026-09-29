@@ -1,5 +1,6 @@
 package org.matsim.accessibility;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.commons.io.FileUtils;
 import org.geotools.api.feature.simple.SimpleFeature;
 import org.matsim.api.core.v01.Id;
@@ -11,6 +12,7 @@ import org.matsim.contrib.accessibility.AccessibilityConfigGroup;
 import org.matsim.contrib.accessibility.AccessibilityFromEvents;
 import org.matsim.contrib.accessibility.Modes4Accessibility;
 import org.matsim.contrib.drt.estimator.DrtEstimator;
+import org.matsim.contrib.drt.estimator.impl.CsvServiceQualityDrtEstimator;
 import org.matsim.contrib.drt.estimator.impl.DirectTripBasedDrtEstimator;
 import org.matsim.contrib.drt.estimator.impl.distribution.NoDistribution;
 import org.matsim.contrib.drt.estimator.impl.trip_estimation.ConstantRideDurationEstimator;
@@ -43,23 +45,48 @@ import java.util.stream.Collectors;
  */
 public final class RunGunmaAccessibility {
 
+	// if outputDir already exists, and you wanna add your analysis there, then leave dirToCopy blank.
+	static final String outputDir = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-29a-personabased-1pct-85plus-drt-supermarket-linkpairs/";
+			static final String dirToCopy = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-13-base/";
+//	static final String dirToCopy = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-26e-personbased-100pct-500/";
+//	static final String dirToCopy = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-28a-personabsed-1pct-85plus-drt-linkpairs";
+
+	//
+	private static final String serviceProbeFile = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-28b-personabsed-drt-750/gunma.drt_service_quality_probes.csv.gz";
+//	private static final String serviceProbeFile = outputDir + "gunma.drt_service_quality_probes.csv.gz";
+
+
+
 	static final String coordinateSystem = "EPSG:2450";
-	static final String dirToCopy = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-13-base/";
 
 	//	static final List<String> relevantPois = List.of("supermarket", "public_bath", "hospital", "shinkansen", "middle");
-	static final List<String> relevantPois = List.of("supermarket", "shinkansen");
+//	static final List<String> relevantPois = List.of("supermarket", "shinkansen");
+	static final List<String> relevantPois = List.of("supermarket");
+//	static final List<String> relevantPois = List.of("shinkansen");
 
-	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.car, Modes4Accessibility.teleportedWalk);
-//	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.estimatedDrt);
+//	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.car);
+	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.estimatedDrt);
 
+	// toggle for person-based or location-based accessibility
 	private static final boolean personBased = true;
 
-	private static final boolean drtDifferentiated = false;
+	// this is a pre-pre-processing step aimed to reduce the number of stop or link pairs examined.
+	private static final boolean writeRelevantStopPairs = true;
+	private static final int accessibilityTileSize=500;
 
-	private static final PopulationFilter filterPopulation = PopulationFilter.base;
+
+	// choose whether DRT LOS should be constant over study area, be derived from a shape file (more heterogenous but aggregated), or the service probe output (most heterogenous)
+	public enum DrtLos {homogenous, avgOfCompletedTripsFromShp, drtServiceLevelProbe}
+	private static final DrtLos drtLos = DrtLos.homogenous;
+
+	private static final PopulationFilter filterPopulation = PopulationFilter.filter85plus;
 
 
-	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-17a-carWalk-supermarketShinkansen";
+	// who are we calculating accessibility for?
+//	static String populationFile = "/Users/jakob/git/matsim-gunma/input/v1.6/gunma-v1.6-100pct-plans.xml.gz";
+//	static String populationFile = "/Users/jakob/git/matsim-gunma/input/v1.6/gunma-v1.6-100pct-plans-filtered85.xml.gz";
+	static String populationFile = "gunma.output_plans.xml.gz";
+
 
 	// DRT Estimator
 
@@ -116,7 +143,8 @@ public final class RunGunmaAccessibility {
 
 	static void main(String[] args) throws IOException {
 
-		FileUtils.copyDirectory(new File(dirToCopy), new File(outputDir));
+		if(!dirToCopy.isBlank())
+			FileUtils.copyDirectory(new File(dirToCopy), new File(outputDir));
 
 		String mapCenterString = "139.0266,36.5211";
 
@@ -132,6 +160,10 @@ public final class RunGunmaAccessibility {
 	private static void calculateAccessibility() throws IOException {
 		AccessibilityConfigGroup accConfig = new AccessibilityConfigGroup();
 
+		accConfig.setWriteDrtStopPairs(writeRelevantStopPairs);
+
+
+
 		if (personBased) {
 
 			accConfig.setPersonBased(true);
@@ -141,16 +173,18 @@ public final class RunGunmaAccessibility {
 		} else {
 			accConfig.setAreaOfAccessibilityComputation(AccessibilityConfigGroup.AreaOfAccesssibilityComputation.fromShapeFile);
 
+
+			double boundingBoxBroadening = 0;
 			accConfig.setShapeFileCellBasedAccessibility("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp");
 			// extents of gunma from qgis -- this really shouldn't be neccessary if we use shp file...
-			accConfig.setBoundingBoxLeft(-8874.3893231801757793);
-			accConfig.setBoundingBoxBottom(104516.0981667207088321);
-			accConfig.setBoundingBoxRight(-1513.2262783532476078);
-			accConfig.setBoundingBoxTop(117287.2301061319012661);
+			accConfig.setBoundingBoxLeft(-8874.3893231801757793 - boundingBoxBroadening);
+			accConfig.setBoundingBoxBottom(104516.0981667207088321 - boundingBoxBroadening);
+			accConfig.setBoundingBoxRight(-1513.2262783532476078 + boundingBoxBroadening);
+			accConfig.setBoundingBoxTop(117287.2301061319012661 + boundingBoxBroadening);
 
 		}
 
-		accConfig.setTileSize_m(500);
+		accConfig.setTileSize_m(accessibilityTileSize);
 
 		accConfig.setTimeOfDay(8 * 3600.);
 
@@ -166,8 +200,10 @@ public final class RunGunmaAccessibility {
 //		String networkFile = ApplicationUtils.matchInput("output_network.xml.gz", Path.of(outputDir)).toString();
 
 //		String networkFile = "input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-network.xml.gz";
-		String networkFile = "gunma.output_network.xml.gz";
-		String populationFile = "gunma.output_plans.xml.gz";
+//		String networkFile = "gunma.output_network.xml.gz";
+		String networkFile = "/Users/jakob/git/matsim-gunma/output-drt-750/gunma.output_network.xml.gz";
+
+
 
 		String poisFile = "/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/pois.xml";
 
@@ -197,7 +233,12 @@ public final class RunGunmaAccessibility {
 
 		//DRT config
 		// drt config
-		ConfigUtils.addOrGetModule( config, DvrpConfigGroup.class );
+		DvrpConfigGroup dvrpConfigGroup = ConfigUtils.addOrGetModule(config, DvrpConfigGroup.class);
+		dvrpConfigGroup.setNetworkModes(Set.of(TransportMode.drt));
+
+		// todo: in future consider reusing previous config
+		config.removeModule(MultiModeDrtConfigGroup.GROUP_NAME);
+		config.removeModule(DrtConfigGroup.GROUP_NAME);
 
 		DrtConfigGroup drtConfigGroup = new DrtConfigGroup();
 		drtConfigGroup.setOperationalScheme(DrtConfigGroup.OperationalScheme.door2door);
@@ -284,7 +325,7 @@ public final class RunGunmaAccessibility {
 			.setBoundingBoxLeft(minX).setBoundingBoxRight(maxX);
 
 		DrtEstimator drtEstimator;
-		if (drtDifferentiated){
+		if (drtLos.equals(DrtLos.avgOfCompletedTripsFromShp)){
 
 			List<SimpleFeature> zonesToWaitTimes = drtWaitShp.readFeatures();
 			drtEstimator = new DirectTripBasedDrtEstimator.Builder()
@@ -295,7 +336,7 @@ public final class RunGunmaAccessibility {
 				.setRideDurationDistributionGenerator(new NoDistribution())
 				.build();
 
-		} else {
+		} else if (drtLos.equals(DrtLos.homogenous)){
 			drtEstimator = new DirectTripBasedDrtEstimator.Builder()
 				.setWaitingTimeEstimator(new ConstantWaitingTimeEstimator(drtConstantWaitTime))
 				.setWaitingTimeDistributionGenerator(new NoDistribution())
@@ -303,6 +344,12 @@ public final class RunGunmaAccessibility {
 				.setRideDurationDistributionGenerator(new NoDistribution())
 				.build();
 
+		} else if (drtLos.equals(DrtLos.drtServiceLevelProbe)) {
+
+			drtEstimator = new CsvServiceQualityDrtEstimator(serviceProbeFile, ImmutableMap::of);
+
+		} else {
+			throw new IOException("Not implemented option");
 		}
 
 		AccessibilityFromEvents.Builder builder = new AccessibilityFromEvents.Builder(scenario, eventsFile, relevantPois);

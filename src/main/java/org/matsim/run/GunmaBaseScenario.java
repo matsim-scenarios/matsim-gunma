@@ -10,7 +10,7 @@ import org.matsim.api.core.v01.population.Leg;
 import org.matsim.api.core.v01.population.Person;
 import org.matsim.application.MATSimApplication;
 import org.matsim.application.options.SampleOptions;
-import org.matsim.contrib.vsp.scenario.SnzActivities;
+import org.matsim.contrib.common.conventions.vsp.SnzActivities;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.config.groups.ReplanningConfigGroup;

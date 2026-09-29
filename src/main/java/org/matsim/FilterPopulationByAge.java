@@ -7,12 +7,20 @@ import org.matsim.api.core.v01.population.PopulationWriter;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.population.io.PopulationReader;
 import org.matsim.core.scenario.ScenarioUtils;
-import org.matsim.facilities.MatsimFacilitiesReader;
 
 import java.util.HashSet;
 import java.util.Set;
 
-public class XXXFilterPopulation {
+/**
+ * Takes a plans file and filters Population by age, producing a new plans file.
+ */
+
+
+public final class FilterPopulationByAge {
+
+	private FilterPopulationByAge() {
+		// do nothing
+	}
 	static void main() {
 		Scenario scenario = ScenarioUtils.createScenario(ConfigUtils.createConfig());
 

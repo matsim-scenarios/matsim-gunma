@@ -16,6 +16,7 @@ import org.matsim.application.MATSimApplication;
 import org.matsim.application.options.ShpOptions;
 import org.matsim.contrib.common.zones.systems.grid.square.SquareGridZoneSystemParams;
 import org.matsim.contrib.drt.optimizer.insertion.extensive.ExtensiveInsertionSearchParams;
+import org.matsim.contrib.drt.optimizer.servicequality.DrtServiceQualityProbeParams;
 import org.matsim.contrib.drt.routing.DrtRoute;
 import org.matsim.contrib.drt.routing.DrtRouteFactory;
 import org.matsim.contrib.drt.run.DrtConfigGroup;
@@ -74,8 +75,29 @@ import java.util.stream.Collectors;
 )
 public class GunmaPolicyScenario extends GunmaBaseScenario {
 
+
+	private static final List<Integer> DRT_SERVICE_QUALITY_PROBE_TIMES = List.of(28800);
+//	private static final List<Integer> DRT_SERVICE_QUALITY_PROBE_TIMES = IntStream.concat(
+//			IntStream.iterate(6 * 3600, time -> time <= 21 * 3600, time -> time + 60 * 60),
+//			IntStream.of(7 * 3600 + 30 * 60, 8 * 3600 + 30 * 60))
+//		.sorted()
+//		.boxed()
+//		.toList();
+
+
+
 	@CommandLine.Option(names = "--policy-case", description = "Which policy case to use", required = true)
 	private PolicyCase policyCase;
+
+//	@CommandLine.Option(names = "--drt-service-quality-probe-stop-pair-input-files", defaultValue = "", description = "Comma-separated accessibility stop-pair CSV/CSV.GZ files. When set, probe only their unique directed stop pairs.")
+//	private String drtServiceQualityProbeStopPairInputFiles = "";
+	private String drtServiceQualityProbeStopPairInputFiles = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-29a-personabased-1pct-85plus-drt-supermarket-linkpairs/analysis/accessibility/supermarket/drt_stop_pairs_queried.csv";
+
+
+
+	private final int numTaxis = 250;
+	private final String outputRoot = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-29b-personabased-1pct-85plus-drt-supermarket-serviceprobe-";
+
 
 	private Set<Id<Link>> filteredLinkIds;
 
@@ -96,10 +118,10 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 			//todo: update to v1.8
 			config.plans().setInputFile("../v1.6/gunma-v1.6-100pct-plans-filtered85.xml.gz");
 			config.facilities().setInputFile("d1_facilities-all.xml.gz");
-			config.controller().setLastIteration(1);
+			config.controller().setLastIteration(0);
 			config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.deleteDirectoryIfExists);
 
-			int numTaxis = 750;
+
 			String taxiFileName = "gunma-v" + GunmaDefaults.VERSION + "-taxis-" + numTaxis + ".xml";
 			URL taxiFileUrl = ConfigGroup.getInputFileURL(config.getContext(), taxiFileName);
 			URL networkUrl = ConfigGroup.getInputFileURL(config.getContext(), config.network().getInputFile());
@@ -112,8 +134,9 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 			filteredLinkIds = filteredNetwork.getLinks().keySet();
 
 			DvrpConfigGroup dvrpConfig = ConfigUtils.addOrGetModule(config, DvrpConfigGroup.class);
+			config.controller().setOutputDirectory(outputRoot + numTaxis);
 			if (policyCase == PolicyCase.drtOnlyAsTaxi) {
-				config.controller().setOutputDirectory("output-" + numTaxis);
+
 				ConfigUtils.addOrGetModule(config, MultiModeTaxiConfigGroup.class);
 				TaxiConfigGroup taxiConfig = TaxiConfigGroup.getSingleModeTaxiConfig(config);
 				taxiConfig.taxisFile = taxiFileName;
@@ -123,7 +146,6 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 				taxiConfig.timeProfiles = true;
 				config.scoring().addModeParams(new ScoringConfigGroup.ModeParams(TransportMode.taxi));
 			} else {
-				config.controller().setOutputDirectory("output-drt-" + numTaxis);
 				dvrpConfig.setNetworkModes(Set.of(TransportMode.drt));
 
 				SquareGridZoneSystemParams squareGridZoneSystemParams = new SquareGridZoneSystemParams();
@@ -143,6 +165,29 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 				drtConfig.setDrtInsertionSearchParams(new ExtensiveInsertionSearchParams());
 				drtConfig.setOperationalScheme(DrtConfigGroup.OperationalScheme.door2door);
 				drtConfig.setDrtServiceAreaShapeFile("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp");
+
+				// ADD Service Level Probe
+				DrtServiceQualityProbeParams probeParams = drtConfig.getDrtServiceQualityProbeParams()
+					.orElseGet(() -> {
+						DrtServiceQualityProbeParams params = new DrtServiceQualityProbeParams();
+						drtConfig.addParameterSet(params);
+						return params;
+					});
+				probeParams.setWriteServiceQualityProbes(true);
+				probeParams.setServiceQualityProbeOutputFile("drt_service_quality_probes.csv.gz");
+				String probeTimesString = DRT_SERVICE_QUALITY_PROBE_TIMES.stream()
+					.map(String::valueOf)
+					.collect(java.util.stream.Collectors.joining(","));
+
+				probeParams.setServiceQualityProbeTimes(probeTimesString);
+
+				probeParams.setServiceQualityProbeSkipInvalidLinkPairs(false);
+				probeParams.setServiceQualityProbeSpatialResolution(DrtServiceQualityProbeParams.SpatialResolution.LINK_TO_LINK);
+
+				if (!drtServiceQualityProbeStopPairInputFiles.isBlank()) {
+					probeParams.setServiceQualityProbeStopPairInputFiles(drtServiceQualityProbeStopPairInputFiles);
+				}
+
 				multiModeDrtCfg.addDrtConfigGroup(drtConfig);
 
 				for (DrtConfigGroup drtCfg : multiModeDrtCfg.getModalElements()) {
@@ -186,6 +231,8 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 			null
 		);
 		ShpOptions.Index jisIndex = shp.createIndex(shp.getShapeCrs(), Attributes.JIS_ZONE_FIELD);
+
+
 
 		for (Person person : scenario.getPopulation().getPersons().values()) {
 			Plan plan = person.getSelectedPlan();
