@@ -20,18 +20,17 @@ from matsim.calibration.base import CalibratorBase
 MODES = ["walk", "car", "ride", "bike"]
 FIXED_MODE = "walk"
 AGE_GROUP = "age_group"
-AGE_GROUPS = ["0-17", "18-64", "65+"]
+AGE_GROUPS = ["0-17", "18-29", "30-44", "45-64", "65-74", "75-84", "85+"]
 
 
 def age_group(age):
     """Return the calibration group for an age value."""
     if pd.isna(age):
         return pd.NA
-    if age < 18:
-        return AGE_GROUPS[0]
-    if age < 65:
-        return AGE_GROUPS[1]
-    return AGE_GROUPS[2]
+    for boundary, group in zip([18, 30, 45, 65, 75, 85], AGE_GROUPS):
+        if age < boundary:
+            return group
+    return AGE_GROUPS[-1]
 
 
 def read_age_target(path="resources/mode_share_per_group_dist_ref.csv"):
@@ -40,15 +39,8 @@ def read_age_target(path="resources/mode_share_per_group_dist_ref.csv"):
     ref["age"] = ref["age"].astype("string").str.strip()
     ref = ref[ref["age"].notna() & ref["age"].ne("")].copy()
 
-    age_mapping = {
-        "0 - 17": "0-17",
-        "18 - 29": "18-64",
-        "30 - 44": "18-64",
-        "45 - 64": "18-64",
-        "65 - 74": "65+",
-        "75 - 84": "65+",
-        "85+": "65+",
-    }
+    age_mapping = {"0 - 17": "0-17", "18 - 29": "18-29", "30 - 44": "30-44",
+                   "45 - 64": "45-64", "65 - 74": "65-74", "75 - 84": "75-84", "85+": "85+"}
     ref[AGE_GROUP] = ref["age"].map(age_mapping)
     if ref[AGE_GROUP].isna().any():
         unknown = sorted(ref.loc[ref[AGE_GROUP].isna(), "age"].unique())
@@ -113,7 +105,7 @@ class AdvancedASCGroupCalibrator(CalibratorBase):
         self.groups = AGE_GROUPS
 
         if set(self.target[AGE_GROUP]) != set(self.groups):
-            raise ValueError("Age target must contain exactly 0-17, 18-64, and 65+")
+            raise ValueError("Age target must contain all seven simulation age groups")
 
     @property
     def name(self):
@@ -150,12 +142,16 @@ class AdvancedASCGroupCalibrator(CalibratorBase):
         group = group_param.removeprefix(f"[{AGE_GROUP}=").removesuffix("]")
         target = self.target[(self.target[AGE_GROUP] == group) & (self.target["mode"] == mode)]["share"].iloc[0]
         fixed_target = self.target[(self.target[AGE_GROUP] == group) & (self.target["mode"] == self.fixed_mode)]["share"].iloc[0]
-        return self.calc_asc_update(
-            target,
-            last_trial.user_attrs[f"{param}_share"],
-            fixed_target,
-            last_trial.user_attrs[f"{group_param}-{self.fixed_mode}_share"],
-        )
+        obtained = last_trial.user_attrs[f"{param}_share"]
+        fixed_obtained = last_trial.user_attrs[f"{group_param}-{self.fixed_mode}_share"]
+        # Children have a structural zero car target; do not take log(0).
+        if target == 0:
+            if obtained > 0:
+                raise ValueError(f"Observed {mode} trips for zero-target group {group}; check mode availability")
+            return 0.0
+        if fixed_obtained == 0:
+            raise ValueError(f"No {self.fixed_mode} trips for reference age group {group}")
+        return self.calc_asc_update(target, obtained, fixed_target, fixed_obtained)
 
     def calc_stats(self, trial, run_dir, transform_persons=None, transform_trips=None):
         trips, persons = read_trips_and_persons(
@@ -170,6 +166,8 @@ class AdvancedASCGroupCalibrator(CalibratorBase):
         errors = []
         for group in self.groups:
             subgroup = trips[trips[AGE_GROUP] == group]
+            if subgroup.empty:
+                raise ValueError(f"No observed trips for age group {group}")
             shares = subgroup.groupby("main_mode").size() / len(subgroup)
             target = self.target[self.target[AGE_GROUP] == group].set_index("mode").share
             obtained = shares.reindex(target.index, fill_value=0.0)
@@ -186,23 +184,25 @@ class AdvancedASCGroupCalibrator(CalibratorBase):
         return np.asarray(errors)
 
 
-target = read_age_target()
-study, obj = create_calibration(
-    "calib-age-asc",
-    AdvancedASCGroupCalibrator(
-        MODES,
-        {"walk": 0.0, "car": -1.127816, "ride": -1.393684, "bike": -1.726253},
-        target,
-        lr=utils.linear_scheduler(start=0.3, interval=30),
-    ),
-    os.environ.get("GUNMA_CALIB_JAR", "matsim-gunma-1.x-SNAPSHOT.jar"),
-    "input/v1.8/gunma-v1.8-config.xml",
-    args=os.environ.get("GUNMA_CALIB_ARGS", "--1pct"),
-    jvm_args=os.environ.get("GUNMA_CALIB_JVM_ARGS", "-Xmx55G -Xms55G -XX:+AlwaysPreTouch -XX:+UseParallelGC"),
-    transform_persons=filter_persons,
-    transform_trips=filter_modes,
-    chain_runs=utils.default_chain_scheduler,
-    debug=True,
-)
 
-study.optimize(obj, int(os.environ.get("GUNMA_CALIB_TRIALS", "10")))
+if __name__ == "__main__":
+    target = read_age_target()
+    study, obj = create_calibration(
+        "gunma-v1.9-age-standalone",
+        AdvancedASCGroupCalibrator(
+            MODES,
+            {"walk": 0.0, "car": -1.127816, "ride": -1.393684, "bike": -1.726253},
+            target,
+            lr=utils.linear_scheduler(start=0.3, interval=30),
+        ),
+        os.environ.get("GUNMA_CALIB_JAR", "matsim-gunma-1.x-SNAPSHOT.jar"),
+        os.environ.get("GUNMA_CALIB_CONFIG", "input/v1.9/gunma-v1.9-config.xml"),
+        args=os.environ.get("GUNMA_CALIB_ARGS", "--1pct --iterations 300"),
+        jvm_args=os.environ.get("GUNMA_CALIB_JVM_ARGS", "-Xmx55G -Xms55G -XX:+AlwaysPreTouch -XX:+UseParallelGC"),
+        transform_persons=filter_persons,
+        transform_trips=filter_modes,
+        chain_runs=utils.default_chain_scheduler,
+        debug=True,
+    )
+
+    study.optimize(obj, int(os.environ.get("GUNMA_CALIB_TRIALS", "15")))

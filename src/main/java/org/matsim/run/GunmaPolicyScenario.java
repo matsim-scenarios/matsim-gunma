@@ -128,6 +128,9 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 	@Override
 	protected Config prepareConfig(Config config) {
 		super.prepareConfig(config);
+		if (policyCase == PolicyCase.noCarAvailOver75policy) {
+			config.subtourModeChoice().setConsiderCarAvailability(true);
+		}
 
 		if (policyCase == PolicyCase.drtOnly || policyCase == PolicyCase.drtOnlyAsTaxi) {
 			//todo: update to v1.8
@@ -222,7 +225,7 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 	protected void prepareScenario(Scenario scenario) {
 		super.prepareScenario(scenario);
 
-		if (policyCase == PolicyCase.noCarAvailOver75policy || policyCase == PolicyCase.noCarAvailOver75base) {
+		if (policyCase == PolicyCase.noCarAvailOver75policy) {
 			removeCarAvailabilityByAge(scenario, 75);
 			return;
 		}
@@ -345,11 +348,9 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 
 	private void removeCarAvailabilityByAge(Scenario scenario, int age) {
 		for (Person person : scenario.getPopulation().getPersons().values()) {
-			if (person.getId().toString().startsWith("gunma_") && PersonUtils.getAge(person) >= age) {
-				if (policyCase == PolicyCase.noCarAvailOver75policy) {
-					PersonUtils.setCarAvail(person, "never");
-				}
-
+			Integer personAge = PersonUtils.getAge(person);
+			if (person.getId().toString().startsWith("gunma") && personAge != null && personAge >= age) {
+				PersonUtils.setCarAvail(person, "never");
 				PersonUtils.removeUnselectedPlans(person);
 				replaceModeLegsWithOtherMode(person.getSelectedPlan(), Set.of(TransportMode.car), TransportMode.walk);
 			}

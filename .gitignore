@@ -6,6 +6,12 @@
 output/
 scenarios/output
 test/output
+input
+experiments/
+runs
+resources
+*.Rproj
+
 
 *.gz
 *.pbf
@@ -519,3 +525,7 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/r,osx,java,linux,maven,python,eclipse,windows,intellij+all,jupyternotebooks
+/input/
+
+# Per-cluster interpreter paths and module settings
+/cluster.env

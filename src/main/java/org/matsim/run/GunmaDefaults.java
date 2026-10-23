@@ -6,7 +6,7 @@ package org.matsim.run;
 public final class GunmaDefaults {
 
 	/** Current scenario input/output version identifier. */
-	public static final String VERSION = "1.8";
+	public static final String VERSION = "1.9";
 	/** Coordinate reference system used by the scenario. */
 	public static final String CRS = "EPSG:2450";
 	/** Scaling factor used when all travellers are converted to car. */

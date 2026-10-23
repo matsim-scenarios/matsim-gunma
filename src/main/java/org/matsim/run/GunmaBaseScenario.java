@@ -57,7 +57,7 @@ public class GunmaBaseScenario extends MATSimApplication {
 
 	/** Creates the base scenario using the canonical Gunma config path. */
 	public GunmaBaseScenario() {
-		super(ConfigUtils.loadConfig(GunmaDefaults.configPath(), new AdvancedScoringConfigGroup()));
+		configPath = GunmaDefaults.configPath();
 	}
 
 	/**
@@ -158,25 +158,18 @@ public class GunmaBaseScenario extends MATSimApplication {
 				continue;
 			}
 
-			String ageGroup;
-			if (age < 18) {
-				ageGroup = "0-17";
-			} else if (age < 30) {
-				ageGroup = "18-29";
-			} else if (age < 45) {
-				ageGroup = "30-44";
-			} else if (age < 65) {
-				ageGroup = "45-64";
-			} else if (age < 75) {
-				ageGroup = "65-74";
-			} else if (age < 85) {
-				ageGroup = "75-84";
-			} else {
-				ageGroup = "85+";
-			}
-
-			person.getAttributes().putAttribute("age_group", ageGroup);
+			person.getAttributes().putAttribute("age_group", ageGroup(age));
 		}
+	}
+
+	/** Calibration age groups, shared by all scenario variants. */
+	static String ageGroup(int age) {
+		int[] bounds = {18, 30, 45, 65, 75, 85};
+		String[] groups = {"0-17", "18-29", "30-44", "45-64", "65-74", "75-84", "85+"};
+		for (int i = 0; i < bounds.length; i++) {
+			if (age < bounds[i]) return groups[i];
+		}
+		return groups[6];
 	}
 
 	/**
@@ -195,19 +188,12 @@ public class GunmaBaseScenario extends MATSimApplication {
 		ConfigUtils.addOrGetModule(config, AdvancedScoringConfigGroup.class).incomeDependent =
 			AdvancedScoringConfigGroup.IncomeDependentScoring.none;
 		configureCommonActivityScoring(config);
-		config.controller().setLastIteration(500);
 //		config.routing().removeTeleportedModeParams(TransportMode.ride);
 
 		SimWrapperConfigGroup sw = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
 		if (sample.isSet()) {
 			modifyForSample(config, sw, sample);
 		}
-
-		// based on /net/ils/rehmann/matsim-gunma/2026-05-27b-calibration-10pct-50iter-extended/runs/012
-		config.scoring().getModes().get(TransportMode.walk).setConstant(0.0);
-		config.scoring().getModes().get(TransportMode.car).setConstant(-1.127816);
-		config.scoring().getModes().get(TransportMode.ride).setConstant(-1.393684);
-		config.scoring().getModes().get(TransportMode.bike).setConstant(-1.726253);
 
 		for (String subpopulation : List.of("person", "commuter2gunma")) {
 			config.replanning().addStrategySettings(
