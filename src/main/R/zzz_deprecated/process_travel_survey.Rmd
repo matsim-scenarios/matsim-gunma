@@ -1,0 +1,745 @@
+---
+title: "process_travel_survey"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(geosphere)
+library(ggalluvial)
+
+```
+
+
+
+
+# Data Import & Cleaning
+read original travel survey, and translate Japanese column names to English
+```{r}
+
+trips_original_raw <- read_csv("../shared-svn/projects/matsim-gunma/data/raw/travel_survey/pt.csv",locale = locale(encoding = "CP932"))
+
+
+
+col_dict <- c(
+  "レコード区分" = "record_type",
+  "票区分" = "form_type",
+  "回収分類" = "collection_category",
+  "バッチ番号" = "batch_id",
+  "整理番号小ゾーン" = "small_zone_id",
+  "整理番号世帯SEQ" = "household_seq",
+
+  "世帯人数" = "household_size",
+  "調査年次" = "survey_year",
+  "現住所" = "current_address",
+  "現住所「番」「番地」" = "current_address_block",
+  "現住所「号」" = "current_address_unit",
+
+  "所有車両軽乗用車" = "owned_light_passenger_cars",
+  "所有車両乗用車" = "owned_passenger_cars",
+  "所有車両軽貨物車" = "owned_light_trucks",
+  "所有車両貨物自動車" = "owned_trucks",
+  "所有車両自転車" = "owned_bicycles",
+  "所有車両原動機付自転車" = "owned_mopeds",
+  "所有車両自動二輪車" = "owned_motorcycles",
+
+  "個人番号" = "person_id",
+  "世帯票性別" = "gender",
+  "世帯票年齢" = "age",
+  "職業" = "occupation",
+  "就業形態" = "employment_type",
+
+  "勤務先・通学先・通園先の所在地" = "work_school_location",
+  "勤務先・通学先・通園先の所在地「番」「番地」" = "work_school_block",
+  "勤務先・通学先・通園先の所在地「号」" = "work_school_unit",
+
+  "外出の際の付き添い" = "needs_assistance_when_going_out",
+  "保有運転免許①" = "drivers_license_1",
+  "保有運転免許②" = "drivers_license_2",
+  "自由に使える自動車" = "car_available",
+
+  "調査日月" = "survey_month",
+  "調査日日" = "survey_day",
+  "トリップ有無" = "has_trip",
+  "トリップ数" = "number_of_trips",
+  "トリップ番号" = "trip_id",
+
+  "出発地区分" = "origin_area_type",
+  "出発地ゾーン" = "origin_zone",
+  "出発地「番」「番地」" = "origin_block",
+  "出発地「号」" = "origin_unit",
+  "出発地施設の種類" = "origin_facility_type",
+
+  "出発時刻午前・午後・翌午前" = "departure_time_period",
+  "出発時刻時" = "departure_hour",
+  "出発時刻分" = "departure_minute",
+
+  "到着地区分" = "destination_area_type",
+  "到着地ゾーン" = "destination_zone",
+  "到着地「番」「番地」" = "destination_block",
+  "到着地「号」" = "destination_unit",
+  "到着地施設の種類" = "destination_facility_type",
+
+  "到着時刻午前・午後・翌午前・翌午後" = "arrival_time_period",
+  "到着時刻時" = "arrival_hour",
+  "到着時刻分" = "arrival_minute",
+
+  "着目的" = "trip_purpose",
+  "発目的" = "origin_purpose",
+
+  "交通手段①手段" = "mode_1",
+  "交通手段①所要時間" = "mode_1_travel_time",
+  "交通手段①乗換地点" = "mode_1_transfer_point",
+
+  "交通手段②手段" = "mode_2",
+  "交通手段②所要時間" = "mode_2_travel_time",
+  "交通手段②乗換地点" = "mode_2_transfer_point",
+
+  "交通手段③手段" = "mode_3",
+  "交通手段③所要時間" = "mode_3_travel_time",
+  "交通手段③乗換地点" = "mode_3_transfer_point",
+
+  "交通手段④手段" = "mode_4",
+  "交通手段④所要時間" = "mode_4_travel_time",
+  "交通手段④乗換地点" = "mode_4_transfer_point",
+
+  "交通手段⑤手段" = "mode_5",
+  "交通手段⑤所要時間" = "mode_5_travel_time",
+
+  "駐輪場所" = "bicycle_parking_location",
+
+  "自動車利用運転有無" = "car_driver_flag",
+  "自動車利用自動車の所有者" = "car_owner",
+  "自動車利用乗車人員" = "car_occupancy",
+  "自動車利用駐車場所" = "car_parking_location",
+  "自動車利用有料道路利用有無" = "toll_road_usage",
+  "自動車利用乗車ICコード" = "car_boarding_ic",
+  "自動車利用降車ICコード" = "car_alighting_ic",
+
+  "拡大係数個人" = "person_weight",
+  "拡大係数トリップ" = "trip_weight",
+
+  "所有車両自動車台数" = "number_of_cars",
+  "所有車両二輪車台数" = "number_of_two_wheelers",
+  "所有車両自動車所有の有無" = "car_ownership_flag",
+  "所有車両二輪車所有の有無" = "two_wheeler_ownership_flag",
+
+  "トリップ所要時間着時刻−発時刻" = "trip_duration_by_time_diff",
+  "トリップ所要時間アンリンクト積み上げ" = "trip_duration_unlinked_sum",
+
+  "目的種類分類0" = "purpose_class_0",
+  "目的種類分類Ⅰ" = "purpose_class_1",
+  "目的種類分類Ⅱ" = "purpose_class_2",
+  "目的種類分類Ⅲ" = "purpose_class_3",
+
+  "代表交通手段分類0" = "main_mode_class_0",
+  "代表交通手段分類Ⅰ" = "main_mode_class_1",
+  "代表交通手段分類Ⅱ" = "main_mode_class_2",
+  "代表交通手段分類Ⅲ" = "main_mode_class_3",
+
+  "現住所マッチングレベル" = "home_geocode_match_level",
+  "現住所緯度" = "home_lat",
+  "現住所経度" = "home_lon",
+
+  "通勤・通学先マッチングレベル" = "work_school_geocode_match_level",
+  "通勤・通学先緯度" = "work_school_lat",
+  "通勤・通学先経度" = "work_school_lon",
+
+  "出発地マッチングレベル" = "origin_geocode_match_level",
+  "出発地緯度" = "origin_lat",
+  "出発地経度" = "origin_lon",
+
+  "到着地マッチングレベル" = "destination_geocode_match_level",
+  "到着地緯度" = "destination_lat",
+  "到着地経度" = "destination_lon"
+)
+
+
+names(trips_original_raw) <- ifelse(
+  names(trips_original_raw) %in% names(col_dict),
+  col_dict[names(trips_original_raw)],
+  names(trips_original_raw)
+)
+
+# trips_original_raw %>% 
+# setdiff(names(df), unname(col_dict))
+
+```
+
+Read Lichen's cleaned travel survey data
+```{r}
+# trips_raw <- read_csv("../shared-svn/projects/matsim-gunma/data/raw/travel_survey/tripDataI_210501_2_fin.csv")
+
+
+
+trips_raw <- read_csv("../shared-svn/projects/matsim-gunma/data/processed/travel_survey/travel-survey-2026-02-10.csv")
+
+
+```
+
+# Exploratory Analysis
+Some Notes:
+- We notice that there is both a person_weight and a trip_weight. We could incorporate the weight into the person matching process....
+- There are a lot of NAs in employment information
+
+```{r}
+
+persons_processed <- trips_original_raw %>% 
+  mutate(id = paste0(small_zone_id,household_seq, person_id)) %>%
+  group_by(id) %>% 
+  summarise(
+    age = first(age), 
+    gender = factor(first(gender), levels = c(1,2), labels = c("male","female")), 
+    occupation = factor(first(occupation), levels = seq(1,7), labels = c("Full-time employee", "Part-time employee", "Self-employed", "Homemaker", "Student", "Unemployed", "Other")), 
+    employment_type = factor(first(employment_type), levels = seq(1,4), labels = c("Full-time","Part-time", "Self-employed","Not-employed")))
+  
+
+
+ggplot(persons_processed) + geom_histogram(aes(age, fill = gender),  position = "dodge")
+
+
+persons_processed %>% group_by(occupation) %>% count() %>% ggplot() + geom_col(aes(occupation,n))
+
+persons_processed %>% group_by(employment_type) %>% count() %>% ggplot() + geom_col(aes(employment_type,n))
+
+
+trips_original_raw %>% 
+
+  mutate(id = paste0(small_zone_id,household_seq, person_id)) %>% 
+  mutate(unknown_loc = is.na(home_lat) | is.na(home_lon) | is.na(origin_lat) | is.na(origin_lon) | is.na(destination_lat) | is.na(destination_lon)) %>% filter(number_of_trips == 0 | !unknown_loc) %>% 
+  group_by(id) %>% summarise(age = first(age)) %>% filter(age >95)
+```
+
+### Modal split
+```{r}
+dist_m <- distHaversine(
+  cbind(trips_original_raw$origin_lon, trips_original_raw$origin_lat),
+  cbind(trips_original_raw$destination_lon, trips_original_raw$destination_lat)
+)
+
+trips_processed <- trips_original_raw %>% 
+  bind_cols(dist = dist_m) %>% 
+  drop_na(dist) %>% 
+  mutate(dist_group = case_when(
+    dist < 1000 ~ "0 - 1000",
+    dist < 2000 ~ "1000 - 2000",
+    dist < 5000 ~ "2000 - 5000",
+    dist < 10000 ~ "5000 - 10000",
+    dist < 20000 ~ "10000 - 20000",
+    .default = "20000+"
+  )) %>% 
+  mutate(mode = factor(main_mode_class_2, levels = c(1,2,3,4,5,6,7,9), labels = c("pt","pt","car","other","bike","walk","other","other"))) %>% select(mode, dist, dist_group)
+
+# mode_share <- trips_processed %>%
+#   group_by(mode) %>% 
+#   summarise(n = n(), dist = sum(dist, na.rm = TRUE)) %>% filter(!is.na(mode)) %>%
+#   ungroup() %>% mutate(share_trips = n/sum(n), share_dist = dist/sum(dist))
+# 
+# mode_share %>% select(mode,share_trips,share_dist) %>% pivot_longer(c("share_trips","share_dist"), names_to = "type",values_to = "share") %>% 
+#   ggplot() + 
+#   geom_col(aes(mode,share, fill = type), position = "dodge") +
+#   ylim(0,1)+
+#   theme_minimal(base_size = 14)
+# 
+# mode_share %>% select(main_mode = mode, share_trips, share_dist) %>% write_csv("resources/mode_users_ref.csv")
+
+
+
+
+```
+
+
+### Modal Split by Distance class
+```{r}
+
+
+# resources/mode_share_ref.csv
+# sum of share column = 1 
+trips_processed %>%
+  group_by(mode,dist_group) %>% 
+  summarise(n = n(), dist = sum(dist, na.rm = TRUE)) %>% filter(!is.na(mode)) %>%
+  ungroup() %>% mutate(share_trips = n/sum(n), share_dist = dist/sum(dist)) %>% select(dist_group, main_mode = mode, share = share_trips, share_dist) %>% arrange(dist_group) %>% write_csv("resources/mode_share_ref.csv")
+
+# TRIP BASED MODAL SPLIT, again grouped into mode and dist_group. However, this time the mode shares in each distance group add up to 1.0. This is used for the simwrapper plot row 2 - right. 
+# resources/mode_share_per_dist_ref.csv
+trips_processed %>%
+  group_by(mode,dist_group) %>%
+  count() %>% 
+  group_by(dist_group) %>% 
+  mutate(share = n / sum(n)) %>%
+  arrange(dist_group) %>% 
+  select(dist_group, main_mode = mode, share) %>% 
+  write_csv("resources/mode_share_per_dist_ref.csv")
+ 
+# Share of users that use mode at least once a day:
+# "resources/mode_users_ref.csv"
+pop_size <- trips_original_raw  %>% 
+  mutate(id = paste0(small_zone_id,household_seq, person_id)) %>% pull(id) %>% unique() %>% length()
+
+trips_original_raw  %>% 
+  mutate(mode = factor(main_mode_class_2, levels = c(1,2,3,4,5,6,7,9), labels = c("pt","pt","car","other","bike","walk","other","other"))) %>% 
+  mutate(id = paste0(small_zone_id,household_seq, person_id)) %>%
+  select( id, mode) %>% 
+  group_by(id,mode) %>% 
+  count() %>% 
+  mutate(uses_mode = TRUE) %>% 
+  select(-n) %>% 
+  pivot_wider(names_from = mode, values_from = uses_mode, values_fill = FALSE) %>% 
+  pivot_longer(-id, names_to = "mode",values_to = "uses_mode") %>%
+  group_by(mode) %>% 
+  summarise(n = sum(uses_mode)) %>% 
+  mutate(share = n / pop_size) %>% 
+  filter(mode != "NA") %>% 
+  select(main_mode = mode, user = share) %>% 
+  write_csv("resources/mode_users_ref.csv")
+
+
+# resources/mode_share_distance_distribution.csv
+# takes share only of mobile people
+trips_processed %>% 
+  mutate(dist_rounded = round(dist,-2)) %>%
+  group_by(mode, dist_rounded) %>%
+  count() %>% 
+  group_by(dist_rounded) %>% 
+  mutate(share = n/sum(n)) %>% 
+  select(mode, share) %>% 
+  ungroup() %>% pivot_wider(names_from = mode,values_from = share, values_fill = 0.0) %>% 
+  rename(dist = dist_rounded) %>% arrange(dist) %>%
+  filter(dist <=30000) %>% 
+  write_csv("resources/mode_share_distance_distribution.csv")
+  
+
+
+```
+
+
+### Modal Split by Age
+```{r}
+trips_original_raw %>% 
+  bind_cols(dist = dist_m) %>% 
+  mutate(ageGr = case_when(
+    age >= 85 ~ "85+",
+    age >= 75 ~ "75-84",
+    age >= 65 ~ "65-74",
+    age >= 18 ~ "18-64",
+    .default = "0-17"
+    )
+  ) %>% 
+  mutate(mode3 = factor(main_mode_class_3, levels = c(1,2,3,4,5,9), labels = c("PT","PT","Automobile","Walk / Motorcyle?","Other","Not clear"))) %>% 
+  select(ageGr,main_mode_class_3, mode3, dist) %>%
+  group_by(ageGr, mode3) %>% 
+  summarise(n = n(), dist = sum(dist, na.rm = TRUE)) %>%
+  filter(mode3 %in% c("PT","Automobile","Walk / Motorcyle?")) %>%
+  group_by(ageGr) %>%
+  mutate(share_trips = n/sum(n), share_dist = dist/sum(dist)) %>% 
+  ggplot() +
+  geom_col(aes(ageGr,share_trips,fill = mode3)) +
+  theme_minimal(base_size = 14)
+
+
+```
+
+activity locations
+```{r}
+library(sf)
+library(tmap)
+
+
+
+shp_jp <- read_sf("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/shp/jp_2450/jp_2450.shp")
+shp_jp %>% tm_shape() + tm_borders()
+
+tmap_mode("view")
+
+dest_levels = c(seq(1,18),99)
+dest_labels = c("home","edu","cultural","community","religous","medical","social_welfare","recreational","offices","gov_office","supermarkets/stores","commercial","entertainment","hotel","factories","transportation","warehouse","other","unknown")
+
+trips_original_raw %>% 
+  mutate(dest = factor(destination_facility_type, levels = dest_levels, labels = dest_labels)) %>%
+  filter(dest == "medical") %>% 
+  drop_na(destination_lon, destination_lat) %>% 
+  st_as_sf(coords = c("destination_lon","destination_lat"), crs = 4326) %>% 
+  # sample_n(1000) %>% 
+  tm_shape() + 
+  tm_dots(fill = "dest")
+
+```
+
+# Produce processed files for population generation in MATSim-Gunma-Scenario
+
+
+Read municipalities, and aggregate to district level, and translate to english
+```{r}
+district_dict <- data.frame(
+  district_jp = c(
+    "前橋市", "高崎市", "桐生市", "伊勢崎市", "太田市",
+    "沼田市", "館林市", "渋川市", "藤岡市", "富岡市",
+    "安中市", "みどり市", "北群馬郡", "多野郡", "甘楽郡",
+    "吾妻郡", "利根郡", "佐波郡", "邑楽郡"
+  ),
+  district_en = c(
+    "Maebashi City", "Takasaki City", "Kiryu City", "Isesaki City", "Ota City",
+    "Numata City", "Tatebayashi City", "Shibukawa City", "Fujioka City", "Tomioka City",
+    "Annaka City", "Midori City", "Kitagunma District", "Tano District", "Kanra District",
+    "Agatsuma District", "Tone District", "Sawa District", "Ora District"
+  ),
+  stringsAsFactors = FALSE
+)
+
+gunma_shp <- st_read("../shared-svn/projects/matsim-gunma/data/raw/shp/gunma_municip_2020/N03-20200101_10_GML/N03-20_10_200101.shp",options = "ENCODING=CP932")  %>% mutate(district_jp = case_when(is.na(N03_003)~ N03_004, .default = N03_003)) %>% left_join(district_dict) %>% st_transform(2450) 
+
+gunma_shp_landuse <- gunma_shp %>%
+  separate_wider_delim(district_en, delim = " ", names = c(NA,"landuse"), cols_remove = FALSE) %>% 
+  st_as_sf()  
+
+   
+```
+
+
+Output 1: Persons
+idx
+region_type
+gender
+employment
+age
+```{r}
+
+# trips_raw %>% view()
+persons <- trips_raw %>% 
+  group_by(id_person) %>% 
+  summarise(gender = case_when(first(male) == 1 ~ "m", .default = "f"), 
+            age = first(age), 
+            mobile_on_day = first(numOfTrips) > 0,
+            h_x = first(h_x),
+            h_y = first(h_y),
+            jobTypeAggr = first(jobTypeAggr)) %>% 
+  st_as_sf(coords = c("h_x","h_y"), crs=4326) %>% 
+  st_transform(2450) %>% 
+  st_join(gunma_shp_landuse %>% select(landuse)) %>%
+  st_drop_geometry() %>% 
+  rename(idx = id_person) %>% 
+    # the only options are district and city atm
+  rename(region_type = landuse) %>% 
+  mutate(employment = case_when(jobTypeAggr %in% c("prim sector","seco sector","teri sector") ~ "employed",
+                                .default = jobTypeAggr)) %>% 
+  select(!jobTypeAggr)
+
+persons %>% 
+  write_csv("../shared-svn/projects/matsim-gunma/data/processed/travel_survey/person_attributes.csv")
+  
+  
+  # tmap_mode("view")
+  tm_basemap("Esri.WorldGrayCanvas") + 
+  tm_shape(gunma_shp_landuse %>% st_as_sf()) +
+    tm_polygons(fill = "landuse")
+    # tm_shape(persons %>% st_as_sf()) +
+    # tm_dots() 
+  
+```
+
+Output 2: Activities
+
+All agents in this cleaned dataset start their day at home... 
+```{r}
+trips_raw %>% group_by(id_person) %>% summarise(h_x = first(h_x), h_y = first(h_y),s_x = first(s_x), s_y = first(s_y), numOfTrips = first(numOfTrips)) %>% 
+  mutate(chk = ((h_x == s_x) & (h_y == s_y)) | numOfTrips == 0) %>% 
+  filter(!chk)
+
+```
+
+for the output:
+p_id
+type
+duration (in minutes)
+leg_duration
+leg_dist
+leg_mode (leg to activity)
+
+So, LL removed all public transit trips from the processed travel survey...
+Also, LL removed all act types except for "home","work","other", NA
+```{r}
+
+# what leg_modes do we have?
+trips_raw %>% pull(CHOICE_mode) %>% unique()
+trips_raw %>% pull(followActi) %>% unique()
+
+# tripurposeAggr has more information (e.g. doesn't aggregate medical into 'other')
+home_acts <- trips_raw %>% 
+  group_by(p_id =id_person) %>%
+  summarise(duration = first(starttime)) %>%
+  mutate(act_num = 0, type = "home", leg_dist = -1, leg_duration = -1)
+
+non_home_acts <- trips_raw %>% 
+  mutate(leg_dist = round(sqrt((d_x2450 - s_x2450)^2 + (d_y2450-s_y2450)^2))) %>% 
+  mutate(dist_to_home = round(sqrt((d_x2450 - h_x2450)^2 + (d_y2450-h_y2450)^2))) %>% 
+  select(p_id =id_person, act_num = tripnum, type = followActi, duration = followActiDura, leg_duration = tripduration, leg_mode = CHOICE_mode,leg_dist,dist_to_home) %>% 
+  mutate(leg_mode = case_when(leg_mode == "car_driver"~ "car", 
+                               leg_mode == "car_passen" ~ "ride",
+                               leg_mode == "bicycle" ~ "bike",
+                               is.na(leg_mode) ~ "walk",
+                                .default = leg_mode))
+
+combined_acts <- bind_rows(non_home_acts,home_acts) %>% arrange(p_id,act_num)
+    
+write_csv(combined_acts,"../shared-svn/projects/matsim-gunma/data/processed/travel_survey/activities.csv")
+```
+
+
+# Create Larger Population
+
+```{r}
+trips_original_raw %>% 
+  mutate(id = paste0(small_zone_id,household_seq, person_id)) %>% 
+  mutate(unknown_loc = is.na(home_lat) | is.na(home_lon) | is.na(origin_lat) | is.na(origin_lon) | is.na(destination_lat) | is.na(destination_lon)) %>% filter(number_of_trips == 0 | !unknown_loc) %>% 
+  group_by(id) %>% summarise(age = first(age)) %>% filter(age >95)
+```
+
+
+```{r}
+library(sf)
+library(tmap)
+
+
+tmap_mode("view")
+trips_raw %>%
+  group_by(id_person) %>% 
+  summarise(x = first(h_x2450), y = first(h_y2450)) %>%
+  st_as_sf(coords = c("x","y"), crs = 2450) %>% 
+  tm_shape() + tm_dots()
+
+```
+
+
+
+# Municapality-Based Origin-Destination Flows
+
+Read municipalities, and aggregate to district level, and translate to english
+```{r}
+district_dict <- data.frame(
+  district_jp = c(
+    "前橋市", "高崎市", "桐生市", "伊勢崎市", "太田市",
+    "沼田市", "館林市", "渋川市", "藤岡市", "富岡市",
+    "安中市", "みどり市", "北群馬郡", "多野郡", "甘楽郡",
+    "吾妻郡", "利根郡", "佐波郡", "邑楽郡"
+  ),
+  district_en = c(
+    "Maebashi City", "Takasaki City", "Kiryu City", "Isesaki City", "Ota City",
+    "Numata City", "Tatebayashi City", "Shibukawa City", "Fujioka City", "Tomioka City",
+    "Annaka City", "Midori City", "Kitagunma District", "Tano District", "Kanra District",
+    "Agatsuma District", "Tone District", "Sawa District", "Ora District"
+  ),
+  stringsAsFactors = FALSE
+)
+
+gunma_shp <- st_read("../shared-svn/projects/matsim-gunma/data/raw/shp/gunma_municip_2020/N03-20200101_10_GML/N03-20_10_200101.shp",options = "ENCODING=CP932")  %>% mutate(district_jp = case_when(is.na(N03_003)~ N03_004, .default = N03_003)) %>% left_join(district_dict) %>% st_transform(2450) %>% separate_wider_delim(district_en, delim = " ", names = c(NA,"landuse"),cols_remove = FALSE) %>% st_as_sf()
+
+
+
+ tm_shape(gunma_shp) + tm_polygons(fill = "landuse")
+```
+
+
+```{r}
+# clean data such that it has coordinates for origin and destination
+trips_od_filtered <- trips_raw %>% drop_na(s_x2450,s_y2450,d_x2450,d_y2450)
+
+# origins
+origins_data <- trips_od_filtered %>%  st_as_sf(coords = c("s_x2450","s_y2450"), crs = 2450)  %>% st_join(gunma_shp) 
+  
+
+# destinations
+destinations_data <- trips_od_filtered %>%  st_as_sf(coords = c("d_x2450","d_y2450"), crs = 2450)  %>% st_join(gunma_shp)
+
+# arrange districts by their # of origins:
+# od_data %>% group_by(origin) %>% summarise(n = sum(n)) %>% arrange(n) %>% pull(origin) %>% paste0(collapse = "','")
+districts_arranged <- c(NA,'Tano District','Tone District','Kanra District','Sawa District','Agatsuma District','Kitagunma District','Numata City','Annaka City','Tomioka City','Fujioka City','Midori City','Shibukawa City','Ora District','Tatebayashi City','Kiryu City','Isesaki City','Ota City','Takasaki City','Maebashi City')
+
+
+origin_destination_data <-  origins_data %>% st_drop_geometry() %>% select(origin = district_en) %>% bind_cols(destinations_data %>% st_drop_geometry() %>% select(destination = district_en, followActi)) %>% 
+  mutate(origin = factor(origin, levels = districts_arranged)) %>% 
+  mutate(destination = factor(destination, levels = districts_arranged))
+
+
+
+
+```
+
+
+OD Matrix for all trips:
+```{r}
+
+# prep
+od_data <- origin_destination_data %>% group_by(origin,destination) %>% count()
+
+# sankey 
+ggplot(
+  od_data,
+  aes(axis1 = origin, axis2 = destination, y = n)
+) +
+  geom_alluvium(aes(fill = origin), width = 1/12) +
+  geom_stratum(width = 1/12, fill = "grey80") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Origin", "Destination")) +
+  theme_minimal()
+
+# sankey (diff)
+ggplot(
+  od_data %>% filter(origin != destination),
+  aes(axis1 = origin, axis2 = destination, y = n)
+) +
+  geom_alluvium(aes(fill = origin), width = 1/12) +
+  geom_stratum(width = 1/12, fill = "grey80") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Origin", "Destination")) +
+  theme_minimal()
+
+
+# 2d tiles
+ggplot(od_data, aes(x = origin, y = destination, fill = n)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c(trans = "log10") +
+  geom_vline(xintercept = 6.5, color = "red", linewidth = 0.6) +
+  geom_hline(yintercept = 6.5, color = "red", linewidth = 0.6) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  ) +
+  labs(
+    x = "Origin",
+    y = "Destination",
+    fill = "Count"
+  )
+
+
+
+# 
+# 
+# %>% group_by(NAME_2) %>% count() 
+# tmap_mode("view")
+# tm_shape(destinations_data)+tm_polygons(fill = "n", breaks = c(seq(0,14000,2000),Inf)) + tm_title("Original Data")
+
+
+
+```
+Just work trips
+```{r}
+
+od_data <- origin_destination_data %>% filter(followActi == "work") %>%  group_by(origin,destination) %>% count()
+
+# sankey 
+
+ggplot(
+  od_data,
+  aes(axis1 = origin, axis2 = destination, y = n)
+) +
+  geom_alluvium(aes(fill = origin), width = 1/12) +
+  geom_stratum(width = 1/12, fill = "grey80") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Origin", "Destination")) +
+  theme_minimal()
+
+# sankey (diff)
+ggplot(
+  od_data %>% filter(origin != destination),
+  aes(axis1 = origin, axis2 = destination, y = n)
+) +
+  geom_alluvium(aes(fill = origin), width = 1/12) +
+  geom_stratum(width = 1/12, fill = "grey80") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Origin", "Destination")) +
+  theme_minimal()
+
+# tiles 
+ggplot(od_data, aes(x = origin, y = destination, fill = n)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c(trans = "log10") +
+  geom_vline(xintercept = 6.5, color = "red", linewidth = 0.6) +
+  geom_hline(yintercept = 6.5, color = "red", linewidth = 0.6) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+  ) +
+  labs(
+    x = "Origin",
+    y = "Destination",
+    fill = "Count"
+  )
+```
+
+Print input files:
+
+```{r}
+od_data %>% rename(from = origin, to = destination) %>% write_csv("../shared-svn/projects/matsim-gunma/data/processed/work_od_matrix.csv")
+
+gunma_shp %>% group_by(district_en) %>% summarise() %>% rename(dist = district_en) %>% 
+write_sf("../shared-svn/projects/matsim-gunma/data/processed/districts.shp")
+
+```
+
+
+### Comparsion of MATSim Outputs to Travel Survey
+```{r}
+
+# output_trips <- read_delim(
+#   "/Users/jakob/git/matsim-gunma/output/eval.output_trips.csv.gz", delim = ";"
+# )
+# 
+# matsim_output <- gunma_shp %>% st_join(output_trips %>% st_as_sf(coords = c("end_x","end_y"), crs = 2450)) %>% group_by(NAME_2) %>% count() 
+# 
+# tm_shape(matsim_output)+tm_polygons(fill = "n", breaks = c(seq(0,14000,2000),Inf))+ tm_title("MATSim Output")
+# 
+# destinations_data %>% st_drop_geometry() %>% full_join(matsim_output, by = "NAME_2") %>% mutate(diff = n.x - n.y) %>% st_as_sf() %>%  tm_shape()+tm_polygons(fill = "diff") + tm_title("Original Data - MATSim Output")
+
+```
+
+
+# Commuter Processing Census 2020
+
+```{r}
+library(readxl)
+commuters <- read_excel("../shared-svn/projects/matsim-gunma/data/2020census/e06_02-01.xlsx", skip = 7)
+
+commuters_cleaned <- commuters %>% 
+  rename(from = "...4") %>% 
+  select(!starts_with("...")) %>%
+  slice(-(1:2)) %>% 
+  pivot_longer(cols = -from,names_to = "to",values_to = "n") %>% 
+    separate_wider_delim(from, delim = "_", names = c("from",NA)) %>% 
+    separate_wider_delim(to, delim = "_", names = c("to",NA)) %>% 
+  mutate(n = as.numeric(n)) %>% 
+  drop_na(n)
+  
+
+
+# Write OD matrix 
+commuters_cleaned %>% write_csv("../shared-svn/projects/matsim-gunma/data/processed/work_od_matrix.csv")
+
+gunma_shp <- st_read("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/shp/gunma_municip_2020/N03-20200101_10_GML/N03-20_10_200101.shp",options = "ENCODING=CP932")  %>% st_transform(2450) %>% rename(zone = N03_007) %>% group_by(zone) %>% summarise()
+
+gunma_shp %>% st_write("../shared-svn/projects/matsim-gunma/data/processed/zones.shp")
+
+
+
+
+```
+
+```{r}
+# trips with origin in each district
+gunma_shp %>%
+  group_by(N03_007) %>% 
+  summarise(district_en = first(district_en)) %>% 
+  left_join(commuters_cleaned %>% filter(to == "00000"), by = c("N03_007" = "from")) %>% 
+  tm_shape() + tm_polygons(fill = "n") +tm_title("Count of Work Trip Origin in Each Municipality")
+
+# trips with destination in each district 
+
+gunma_shp %>% group_by(N03_007) %>% 
+  summarise(district_en = first(district_en)) %>% 
+  left_join(commuters_cleaned %>% filter(from == "00000"), by = c("N03_007" = "to")) %>% 
+  tm_shape() + tm_polygons(fill = "n") + tm_title("Count of Work Trip Destination in Each Municipality")
+```
+
+
+

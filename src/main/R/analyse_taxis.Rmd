@@ -1,0 +1,151 @@
+---
+title: "analyse_taxis"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+```
+
+
+read shapes
+```{r}
+in_75_shp <- "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp"
+
+
+
+shp_jis <- st_read(in_75_shp) %>% rename(zone = id)
+
+shp_gunma <- st_read("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp") 
+
+
+```
+
+# 1500 vehicles
+
+```{r}
+in_wait_times_1500 <- "../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-1500-gunma.csv"
+out_wait_shp_1500 <- "../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-1500-gunma.shp"
+```
+
+
+
+```{r}
+
+zone_stats_raw_1500 <- read_csv(in_wait_times_1500)
+
+zone_stats <- zone_stats_raw_1500 %>% 
+  group_by(zone) %>% 
+  summarise(mean_wait = as.integer(mean(waiting_time)), median_wait = as.integer(median(waiting_time)), n = n()) %>%
+  mutate(zone = as.character(zone))
+
+zone_stats_raw_1500 %>% ggplot() + geom_histogram(aes(waiting_time))
+
+study_area_stats <- zone_stats_raw_1500 %>% summarise(mean_wait = as.integer(mean(waiting_time)), median_wait = as.integer(median(waiting_time)), n = n(), max_wait = as.integer(max(waiting_time)))
+
+study_area_stats
+
+merged_1500 <- left_join(shp_jis,zone_stats, by ="zone") %>% filter(str_starts(zone,"10"))
+
+merged_1500 %>% st_drop_geometry() %>%  summarise(max_median = max(median_wait), max_mean = max(mean_wait))
+
+
+
+merged_1500 %>% select(typ_wt = mean_wait) %>%
+st_write(out_wait_shp_1500)
+
+
+```
+
+
+plots for paper
+```{r}
+tmap_mode("plot")
+fig_map_wait_1500 <- merged_1500  %>% 
+  mutate(median_wait = median_wait / 60, mean_wait = mean_wait / 60) %>% 
+  tm_shape() + tm_polygons(fill = "mean_wait", breaks = c(0,5,10,15,20,25,Inf),    title = "Mean Wait\nTime (min)") + tm_basemap("Stadia.StamenTerrainBackground", api = "996f61fe-f7b6-4641-bb2b-555eca9cdd21") +
+  tm_layout(  legend.outside = FALSE,
+  legend.position = c("right", "top"), scale = 2)
+
+fig_map_wait_1500
+
+tmap_save(fig_map_wait_1500, filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_wait_map_1500.png")
+
+
+
+
+```
+
+# 2500 Vehicles 
+
+```{r}
+in_wait_times_2500 <- "../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-2500-gunma.csv"
+out_wait_shp_2500 <- "../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-2500-gunma.shp"
+```
+
+
+
+```{r}
+
+zone_stats_raw_2500 <- read_csv(in_wait_times_2500)
+
+zone_stats <- zone_stats_raw_2500 %>%   
+  group_by(zone) %>% 
+  summarise(mean_wait = as.integer(mean(waiting_time)), median_wait = as.integer(median(waiting_time)), n = n()) %>%
+  mutate(zone = as.character(zone))
+
+zone_stats_raw_2500 %>% ggplot() + geom_histogram(aes(waiting_time))
+
+study_area_stats <- zone_stats_raw_2500 %>% summarise(mean_wait = as.integer(mean(waiting_time)), median_wait = as.integer(median(waiting_time)), n = n(), max_wait = as.integer(max(waiting_time)))
+
+study_area_stats
+
+merged_2500 <- left_join(shp_jis,zone_stats, by ="zone") %>% filter(str_starts(zone,"10"))
+
+merged_2500 %>% st_drop_geometry() %>%  summarise(max_median = max(median_wait), max_mean = max(mean_wait))
+
+
+
+merged_2500 %>% select(typ_wt = mean_wait) %>%
+  st_write(out_wait_shp_2500)
+
+
+```
+
+
+plots for paper
+```{r}
+tmap_mode("plot")
+fig_map_wait_2500 <- merged_2500  %>% 
+  mutate(median_wait = median_wait / 60, mean_wait = mean_wait / 60) %>% 
+  tm_shape() + tm_polygons(fill = "mean_wait", breaks = c(0,5,10,15,20,25,Inf),    title = "Mean Wait\nTime (min)") + tm_basemap("Stadia.StamenTerrainBackground", api = "996f61fe-f7b6-4641-bb2b-555eca9cdd21") +
+  tm_layout(  legend.outside = FALSE,
+  legend.position = c("right", "top"))
+
+fig_map_wait_2500
+
+tmap_save(fig_map_wait_2500, filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_wait_map_2500.png")
+
+
+```
+
+
+# COMPARISON
+```{r}
+
+fig_boxplot_wait_compare <- zone_stats_raw_1500 %>% 
+  mutate(vehicles = "1500", zone = as.character(zone)) %>% 
+  bind_rows(zone_stats_raw_2500 %>% mutate(vehicles = "2500")) %>% 
+  mutate(waiting_time = waiting_time/60) %>% 
+  ggplot() + geom_boxplot(aes(vehicles, waiting_time),outlier.shape = NA) +
+  theme_minimal(base_size = 20) +
+  ylim(0,20) +
+  labs(x = "Fleet Size", y = "Wait Time (min)")
+
+fig_boxplot_wait_compare
+
+ggsave(fig_boxplot_wait_compare, filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_wait_boxplot_compare.png")
+```
+

@@ -1,0 +1,98 @@
+---
+title: "drt_service_probe"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(matsim)
+```
+
+
+
+```{r}
+gunma_border <- st_read("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp")
+ 
+
+
+```
+
+
+```{r}
+net <- matsim::read_network("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-28b-personabsed-drt-500/gunma.output_network.xml.gz")
+```
+
+
+```{r}
+
+wait_times <- read_delim("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-27b-spatial-drt-250/gunma.drt_service_quality_probes.csv.gz", delim = ";") |> filter(destinationLink == "-170767177") 
+
+joined <-  wait_times |> 
+  left_join(net$links |> select(id,x.from,x.to,y.from,y.to), by = c("originLink" = "id"))
+
+tmap_mode("plot")
+
+  tm_shape(gunma_border) + tm_borders(col = "purple",lwd = 2) + 
+  tm_shape(joined |> mutate(x = (x.from + x.to)/2, y = (y.from + y.to)/2, waitTime_min = waitTime/60) |> st_as_sf(coords = c("x","y"), crs=2450)) + 
+  tm_dots(fill="waitTime_min",     fill.scale = tm_scale_intervals(
+     breaks = c(seq(0,25,5), Inf),
+     values = "-viridis",
+    ),  fill.legend = tm_legend(title = "Wait Time\n(min)", size = 0.7),size = 0.05)  + tm_basemap("Esri.WorldGrayCanvas")+ tm_layout(
+    legend.position = tm_pos_in("right", "top")
+          # legend.show = FALSE
+
+  )
+
+
+```
+detour factors
+```{r}
+joined |> mutate(x = (x.from + x.to)/2, y = (y.from + y.to)/2, waitTime_min = waitTime/60) |> st_as_sf(coords = c("x","y"), crs=2450) |> 
+  tm_shape() + 
+  tm_dots(fill="detourFactor",     fill.scale = tm_scale_intervals(
+     # breaks = c(seq(0,25,5), Inf),
+     values = "-viridis",
+    ),  fill.legend = tm_legend(title = "Detour Factor", size = 0.7),size = 0.05)  + tm_basemap("Esri.WorldGrayCanvas")+ tm_layout(
+    legend.position = tm_pos_in("left", "top")
+  )
+```
+
+
+
+DRT
+
+```{r}
+
+tmap_mode("plot")
+accessibility_drt <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-27b-spatial-drt-500/analysis/accessibility/shinkansen/accessibilities.csv")
+tm_shape(gunma_border) + tm_borders(col = "purple",lwd = 2) + 
+  tm_shape(accessibility_drt |> 
+  st_as_sf(coords=c("xcoord","ycoord"), crs = 2450)) + 
+  tm_dots(fill = "estimatedDrt_accessibility", size = 0.05,fill.scale = tm_scale_intervals(breaks = c(-Inf,seq(-30,0,5)),values = "viridis"),  fill.legend = tm_legend(title = "Accessibility\n(utils)", size = 0.7))+
+  tm_basemap("Esri.WorldGrayCanvas")+ tm_layout(legend.position = tm_pos_in("right", "top"))  + 
+  tm_shape(shinkansen_pois) + 
+  tm_dots(fill = "red")+tm_shape(gunma_border) + tm_borders(col = "purple",lwd = 2)
+  
+
+```
+
+
+spatial car, as comparison
+```{r}
+
+accessibility_car <- read_csv("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-26g-spatial-car/analysis/accessibility/shinkansen/accessibilities.csv")
+
+
+tm_shape(gunma_border) + tm_borders(col = "purple",lwd = 2)+
+ 
+  tm_shape(accessibility_car |> st_as_sf(coords=c("xcoord","ycoord"), crs = 2450)) + 
+  tm_dots(fill = "car_accessibility", size = 0.05,fill.scale = tm_scale_intervals(breaks = c(-Inf,seq(-25,0,5)),values = "viridis"),  fill.legend = tm_legend(title = "Accessibility\n(utils)", size = 0.7))+
+  tm_basemap("Esri.WorldGrayCanvas")+
+  # tm_layout(legend.position = tm_pos_in("left", "top"))  + 
+  tm_shape(shinkansen_pois) + 
+  tm_dots(fill = "red") +tm_shape(gunma_border) + tm_borders(col = "purple",lwd = 2)
+
+```
+

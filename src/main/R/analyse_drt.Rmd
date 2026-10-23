@@ -1,0 +1,344 @@
+---
+title: "analyse_drt"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggpmisc)
+library(lubridate)
+library(sf)
+library(tmap)
+```
+
+# Prep
+```{r}
+out_wait_shp_small <- "../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-small-gunma.shp"
+out_wait_shp_large <- "../shared-svn/projects/matsim-gunma/data/processed/drt/wait_times-large-gunma.shp"
+
+in_drt_legs_small <- "/Users/jakob/git/matsim-gunma/output-drt-500/gunma.output_drt_legs_drt.csv"
+in_drt_legs_medium <-  "/Users/jakob/git/matsim-gunma/output-drt-750/gunma.output_drt_legs_drt.csv"
+in_drt_legs_large <- "/Users/jakob/git/matsim-gunma/output-drt-1500/gunma.output_drt_legs_drt.csv"
+```
+
+
+landuse
+```{r}
+district_dict <- data.frame(
+  district_jp = c(
+    "前橋市", "高崎市", "桐生市", "伊勢崎市", "太田市",
+    "沼田市", "館林市", "渋川市", "藤岡市", "富岡市",
+    "安中市", "みどり市", "北群馬郡", "多野郡", "甘楽郡",
+    "吾妻郡", "利根郡", "佐波郡", "邑楽郡"
+  ),
+  district_en = c(
+    "Maebashi City", "Takasaki City", "Kiryu City", "Isesaki City", "Ota City",
+    "Numata City", "Tatebayashi City", "Shibukawa City", "Fujioka City", "Tomioka City",
+    "Annaka City", "Midori City", "Kitagunma District", "Tano District", "Kanra District",
+    "Agatsuma District", "Tone District", "Sawa District", "Ora District"
+  ),
+  stringsAsFactors = FALSE
+)
+
+gunma_shp <- st_read("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/jis_zones/N03-20_200101.shp",options = "ENCODING=CP932")  %>% mutate(district_jp = case_when(is.na(N03_003)~ N03_004, .default = N03_003)) %>% left_join(district_dict) %>% st_transform(2450) 
+
+gunma_shp_landuse <- gunma_shp %>%
+  separate_wider_delim(district_en, delim = " ", names = c(NA,"landuse"), cols_remove = FALSE) %>% 
+  st_as_sf()  %>% filter(str_starts(N03_007,"10")) %>% select(zone = N03_007, landuse) %>% group_by(zone) %>% summarise(landuse = first(landuse))
+```
+
+
+read and clean
+
+```{r}
+# SMALL FLEET SIZE = 500 vehicles
+drt_trips_raw_small <- read_delim(in_drt_legs_small) 
+
+drt_trips_cleaned_small <- drt_trips_raw_small %>%
+  mutate(hour = floor(submissionTime / 3600)) %>%
+  mutate(hour_binned = case_when(hour < 6 ~ "00-05", hour<10 ~ "06-09", hour <16 ~ "10-15", hour <21 ~ "16-20", .default = "21-Inf")) %>% 
+  mutate(directRideTime = directRideTime/60, inVehicleRideTime = inVehicleRideTime/60) %>% 
+  st_as_sf(coords = c("fromX","fromY"), crs = 2450) %>% 
+  st_join(gunma_shp_landuse) %>% 
+  filter(!is.na(landuse))
+
+
+# SMALL FLEET SIZE = 500 vehicles
+drt_trips_raw_medium <- read_delim(in_drt_legs_medium) 
+
+drt_trips_cleaned_medium <- drt_trips_raw_medium %>%
+  mutate(hour = floor(submissionTime / 3600)) %>%
+  mutate(hour_binned = case_when(hour < 6 ~ "00-05", hour<10 ~ "06-09", hour <16 ~ "10-15", hour <21 ~ "16-20", .default = "21-Inf")) %>% 
+  mutate(directRideTime = directRideTime/60, inVehicleRideTime = inVehicleRideTime/60) %>% 
+  st_as_sf(coords = c("fromX","fromY"), crs = 2450) %>% 
+  st_join(gunma_shp_landuse) %>% 
+  filter(!is.na(landuse))
+
+
+
+# LARGE FLEET SIZE = 1500 vehicles 
+drt_trips_raw_large <- read_delim(in_drt_legs_large) 
+
+
+drt_trips_cleaned_large <- drt_trips_raw_large %>%
+  mutate(hour = floor(submissionTime / 3600)) %>%
+  mutate(hour_binned = case_when(hour < 6 ~ "00-05", hour<10 ~ "06-09", hour <16 ~ "10-15", hour <21 ~ "16-20", .default = "21-Inf")) %>% 
+  mutate(directRideTime = directRideTime/60, inVehicleRideTime = inVehicleRideTime/60) %>% 
+  st_as_sf(coords = c("fromX","fromY"), crs = 2450) %>% 
+  st_join(gunma_shp_landuse) %>% 
+  filter(!is.na(landuse))
+```
+## Wait Time per District
+
+### Small Fleet Size
+```{r}
+
+
+# Summary Stats for entire study area (53 minutes)
+drt_trips_cleaned_small %>% summarise(mean_wait = as.integer(mean(waitTime)), median_wait = as.integer(median(waitTime)), n = n(), max_wait = as.integer(max(waitTime))) %>% st_drop_geometry()
+
+
+# On the level of JIS zones:
+zone_stats_small <- drt_trips_cleaned_small %>%   
+  group_by(zone) %>% 
+  summarise(mean_wait = as.integer(mean(waitTime)), median_wait = as.integer(median(waitTime)), n = n()) %>%
+  mutate(zone = as.character(zone)) %>% st_drop_geometry() %>% left_join(gunma_shp_landuse) %>% st_as_sf()
+
+# plot it
+zone_stats_small  %>% 
+  mutate(median_wait = median_wait / 60, mean_wait = mean_wait / 60) %>% 
+  tm_shape() + 
+  tm_polygons(fill = "mean_wait", title = "Mean Wait\nTime (min)") + 
+  tm_basemap("Stadia.StamenTerrainBackground", api = "996f61fe-f7b6-4641-bb2b-555eca9cdd21") +
+  tm_layout(legend.outside = FALSE,
+  legend.position = c("right", "top"))
+
+zone_stats_small %>% st_drop_geometry() %>%  summarise( max_mean = max(mean_wait))
+
+zone_stats_small %>% select(typ_wt = mean_wait) %>%
+st_write(out_wait_shp_small)
+
+```
+### Medium Fleet Size
+```{r}
+
+
+# Summary Stats for entire study area (53 minutes)
+drt_trips_cleaned_medium %>% summarise(mean_wait = as.integer(mean(waitTime)), median_wait = as.integer(median(waitTime)), n = n(), max_wait = as.integer(max(waitTime))) %>% st_drop_geometry()
+
+
+# On the level of JIS zones:
+zone_stats_medium <- drt_trips_cleaned_medium %>%   
+  group_by(zone) %>% 
+  summarise(mean_wait = as.integer(mean(waitTime)), median_wait = as.integer(median(waitTime)), n = n()) %>%
+  mutate(zone = as.character(zone)) %>% st_drop_geometry() %>% left_join(gunma_shp_landuse) %>% st_as_sf()
+
+# plot it
+fig_map_wait_1000 <- zone_stats_medium  %>% 
+  mutate(median_wait = median_wait / 60, mean_wait = mean_wait / 60) %>% 
+  tm_shape() + tm_polygons(fill = "mean_wait",    title = "Mean Wait\nTime (min)") + tm_basemap("Stadia.StamenTerrainBackground", api = "996f61fe-f7b6-4641-bb2b-555eca9cdd21") +
+  tm_layout(  legend.outside = FALSE,
+  legend.position = c("right", "top"))
+
+fig_map_wait_1000
+
+
+tmap_save(fig_map_wait_1000, filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_wait_map_1000.png")
+
+zone_stats_medium %>% st_drop_geometry() %>%  summarise( max_mean = max(mean_wait))
+
+# zone_stats_medium %>% select(typ_wt = mean_wait) %>%
+# st_write(out_wait_shp_medium)
+
+```
+
+### Large Fleet Size
+```{r}
+
+# Summary Stats for entire study area (5 minutes)
+drt_trips_cleaned_large %>% summarise(mean_wait = as.integer(mean(waitTime)), median_wait = as.integer(median(waitTime)), n = n(), max_wait = as.integer(max(waitTime))) %>% st_drop_geometry()
+
+
+# On the level of JIS zones:
+zone_stats_large <- drt_trips_cleaned_large %>%   
+  group_by(zone) %>% 
+  summarise(mean_wait = as.integer(mean(waitTime)), median_wait = as.integer(median(waitTime)), n = n()) %>%
+  mutate(zone = as.character(zone)) %>% st_drop_geometry() %>% left_join(gunma_shp_landuse) %>% st_as_sf()
+
+# plot it
+zone_stats_large  %>% 
+  mutate(median_wait = median_wait / 60, mean_wait = mean_wait / 60) %>% 
+  tm_shape() + tm_polygons(fill = "mean_wait",    title = "Mean Wait\nTime (min)") + tm_basemap("Stadia.StamenTerrainBackground", api = "996f61fe-f7b6-4641-bb2b-555eca9cdd21") +
+  tm_layout(  legend.outside = FALSE,
+  legend.position = c("right", "top"))
+
+
+# from the zonal means, find the maximum (as a default value for the DRT estimator)
+zone_stats_large %>% st_drop_geometry() %>%  summarise(max_mean = max(mean_wait))
+
+zone_stats_large %>% select(typ_wt = mean_wait) %>%
+st_write(out_wait_shp_large)
+
+```
+  ### Comparison of fleet sizes
+```{r}
+
+fig_boxplot_wait_compare <- drt_trips_cleaned_small %>% select(waitTime) %>% mutate(fleet_size = 500) %>% 
+  bind_rows(drt_trips_cleaned_medium %>% select(waitTime) %>% mutate(fleet_size = 1000)) %>% 
+  bind_rows(drt_trips_cleaned_large %>% select(waitTime) %>% mutate(fleet_size = 1500)) %>% 
+  mutate(fleet_size = factor(fleet_size)) %>% 
+  mutate(waitTime = waitTime/60) %>% 
+  st_drop_geometry() %>% ggplot() + geom_boxplot(aes(fleet_size,waitTime))+
+  theme_minimal(base_size = 20) +
+  labs(x = "Fleet Size", y = "Wait Time (min)")
+
+fig_boxplot_wait_compare
+
+ggsave(fig_boxplot_wait_compare, filename = "/Users/jakob/Dropbox/Documents/04_Work-VSP/007_papers/2026-03b-hEART/figures/results_wait_boxplot_compare.png")
+```
+
+
+## Detour Factors
+### Small Fleet Size
+```{r}
+
+drt_trips_cleaned_small %>%  ggplot(aes(directRideTime,inVehicleRideTime)) + geom_bin2d(bins = 40) +
+      scale_fill_viridis_c(trans = "log10")+
+  geom_smooth(method = "lm", se = FALSE) +
+  # stat_poly_eq(
+  #   formula = y ~ x,
+  #   aes(label = after_stat(paste(eq.label, rr.label, sep = "~~~~"))),
+  #   parse = TRUE
+  # ) +
+    theme_minimal(base_size = 16)+
+    labs(x="Direct Ride Time (min)", y = "Actual Ride Time (min)")
+
+```
+
+### Medium Fleet Size
+
+```{r}
+
+drt_trips_cleaned_medium %>%  ggplot(aes(directRideTime,inVehicleRideTime)) + geom_bin2d(bins = 40) +
+      scale_fill_viridis_c(trans = "log10")+
+  geom_smooth(method = "lm", se = FALSE) +
+  # stat_poly_eq(
+  #   formula = y ~ x,
+  #   aes(label = after_stat(paste(eq.label, rr.label, sep = "~~~~"))),
+  #   parse = TRUE
+  # ) +
+    theme_minimal(base_size = 16)+
+    labs(x="Direct Ride Time (min)", y = "Actual Ride Time (min)")
+
+
+```
+
+
+### Large Fleet Size 
+```{r}
+
+drt_trips_cleaned_large %>%  ggplot(aes(directRideTime,inVehicleRideTime)) + geom_bin2d(bins = 40) +
+      scale_fill_viridis_c(trans = "log10")+
+  geom_smooth(method = "lm", se = FALSE) +
+  # stat_poly_eq(
+  #   formula = y ~ x,
+  #   aes(label = after_stat(paste(eq.label, rr.label, sep = "~~~~"))),
+  #   parse = TRUE
+  # ) +
+  theme_minimal(base_size = 16)+
+    labs(x="Direct Ride Time (min)", y = "Actual Ride Time (min)")
+  
+
+```
+### Comparison
+
+```{r}
+drt_trips_cleaned_small %>% select(directRideTime,inVehicleRideTime) %>% mutate(fleet_size = 500) %>% 
+  bind_rows(drt_trips_cleaned_medium %>% select(directRideTime,inVehicleRideTime) %>% mutate(fleet_size = 1000)) %>% 
+  bind_rows(drt_trips_cleaned_large %>% select(directRideTime,inVehicleRideTime) %>% mutate(fleet_size = 1500)) %>% 
+  mutate(fleet_size = factor(fleet_size)) %>% 
+  st_drop_geometry() %>% 
+  ggplot(aes(directRideTime,inVehicleRideTime)) + geom_bin2d(bins = 40) +
+      scale_fill_viridis_c(trans = "log10")+
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_grid(~fleet_size) +
+  # stat_poly_eq(
+  #   formula = y ~ x,
+  #   aes(label = after_stat(paste(eq.label, rr.label, sep = "~~~~"))),
+  #   parse = TRUE
+  # ) +
+  theme_minimal(base_size = 16)+
+    labs(x="Direct Ride Time (min)", y = "Actual Ride Time (min)")
+```
+# Occupancy
+```{r}
+occ_500 <- read_delim("/Users/jakob/git/matsim-gunma/output-drt-500/gunma.output_occupancy_time_profiles_drt.txt")
+occ_750 <- read_delim("/Users/jakob/git/matsim-gunma/output-drt-750/gunma.output_occupancy_time_profiles_drt.txt")
+
+occ_1000 <- read_delim("/Users/jakob/git/matsim-gunma/output-drt-1000/gunma.output_occupancy_time_profiles_drt.txt")
+occ_1500 <- read_delim("/Users/jakob/git/matsim-gunma/output-drt-1500/gunma.output_occupancy_time_profiles_drt.txt")
+
+
+occ_500 %>% mutate(fleet_size = 500) %>% 
+  bind_rows(occ_750 %>% mutate(fleet_size = 750)) %>% 
+  bind_rows(occ_1000 %>% mutate(fleet_size = 1000)) %>% 
+  bind_rows(occ_1500 %>% mutate(fleet_size = 1500)) %>% 
+  filter(time <= hm("24:00")) %>% 
+  pivot_longer(-c(time,fleet_size), names_to = "status", values_to = "n") %>% 
+  # mutate(status = factor(status, levels = c("STAY","0 pax", "1 pax", "2 pax", "3 pax", "4 pax"))) %>% 
+  ggplot() + 
+  scale_x_time(minor_breaks = "1 hour", date_breaks = "3 hours",date_labels = "%H") +
+  geom_area(aes(time, n, fill = status)) + 
+  scale_fill_manual(values = c(
+    "STAY" = "gray",
+    "0 pax" = "white",
+    "1 pax" = "yellow",
+    "2 pax" = "orange",
+    "3 pax" = "red",
+    "4 pax" = "purple"
+  )) +
+  facet_grid(~fleet_size)+
+  theme_minimal(base_size = 16) + 
+  labs(x = "Time", y = "Number of Vehicles")
+```
+
+
+
+# DEPRECATED
+```{r}
+trips_100 <- read_delim("output-drt-100/gunma.output_drt_legs_drt.csv") 
+trips_1500 <- read_delim("output-drt-1500/gunma.output_drt_legs_drt.csv") 
+
+# 986 minutes (16 hours) for 100 vehicles 
+trips_100 %>% summarise(waitTime = mean(waitTime)/60)
+
+# 23 minutes for 1500 vehicles (why is this so much higher than the 9 minutes in the taxi contrib...)
+trips_1500 %>% summarise(waitTime_mean = mean(waitTime)/60, waitTime_median = median(waitTime)/60)
+
+trips_1500 %>% ggplot() + geom_histogram(aes(waitTime))
+
+```
+
+spatially and temporally differentiated detour factors
+```{r}
+
+# for(time in unique(drt_trips_cleaned_small$hour_binned)) {
+#   xxx <- drt_trips_cleaned_small %>% 
+#     filter(hour_binned == time) %>% 
+#   ggplot(aes(directRideTime,inVehicleRideTime)) +
+#   # geom_point(alpha = 0.3, aes(col = landuse)) +
+#   geom_bin2d(bins = 40) +
+#       scale_fill_viridis_c(trans = "log10")+
+#   geom_smooth(method = "lm", se = FALSE) +
+#   stat_poly_eq(
+#     formula = y ~ x,
+#     aes(label = after_stat(paste(eq.label, rr.label, sep = "~~~~"))),
+#     parse = TRUE
+#   ) + 
+#     facet_grid(~landuse)+
+#   labs(x="Direct Ride Time (min)", y = "Actual Ride Time (min)", title = time)
+#   
+#   print(xxx)
+# }
+```
+
