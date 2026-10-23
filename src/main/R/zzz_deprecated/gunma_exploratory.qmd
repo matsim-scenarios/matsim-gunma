@@ -1,0 +1,233 @@
+---
+title: "gunma_first_analysis"
+format: html
+editor: visual
+---
+
+## Files
+
+```{bash}
+# Set wd to /Users/jakob/git/_playground/gunma
+ls data/matsim_inputs
+```
+
+# Config
+
+CRS = 2450!!!!
+
+```{bash}
+ls data/matsim_inputs | grep -i config
+
+```
+
+# Network
+
+Questions:
+
+-   How was the network generated?
+
+-   How did you come up with the scaling factors of 66% or 68%?
+
+CRS = 2450!!!!
+
+```{bash}
+ls data/matsim_inputs | grep -i net
+
+# open -a Via data/matsim_inputs/NetworkRed191211fromJOSM_noHighway_cle_speed0.66Adjusted.xml
+
+```
+
+Looking at the network, we see that it is simply a bounding box around the area of Gunma.
+
+![](images/clipboard-3869763261.png)
+
+Here we see that the two networks differ in freespeed, this is how Lichen scaled down from 100% to 2.5%.
+
+Hmmm... but the average "freespeed" is still 26kmh. I feel like that is too high, if we've really scaled down 40x. So apparently the 66 and 68 refers to the scaling factor of the freespeed.
+
+```{r}
+library(sf)
+library(tmap)
+library(tidyverse)
+library(purrr)
+install.packages("devtools")
+library(devtools)
+devtools::install_github("matsim-vsp/matsim-r", build_vignettes = TRUE)
+library(matsim)
+
+net66 <- read_network("data/matsim_inputs/NetworkRed191211fromJOSM_noHighway_cle_speed0.66Adjusted.xml")$links %>% mutate(scenario = "66")
+
+net68 <- read_network("data/matsim_inputs/NetworkRed191211fromJOSM_noHighway_cle_speed0.68Adjusted.xml")$links %>% mutate(scenario = "68")
+
+net_comb <- bind_rows(net66,net68)
+
+net_comb %>%
+  group_by(scenario) %>% 
+  summarise(freespeed = mean(freespeed), capacity = mean(capacity))
+
+7.230469 *3.6 / .66
+7.449574 * 3.6 /.68
+
+
+```
+
+# Population
+
+-   why are there so many plans?
+
+-   why do all the plans have different population sizes, if they all come from the travel survey?
+
+-   why are the only two attributes available are "bicycAvail" and "carAvail"?
+
+```{bash}
+ls data/matsim_inputs/ | grep -i plans
+```
+
+```{bash}
+cd data/matsim_inputs/
+echo "file,cnt,pop" > plans_wc.csv
+for f in Plans*; do
+  if [ -f "$f" ]; then
+    lines=$(wc -l < "$f")
+    pop=$(grep "person id=" $f | wc -l)
+    echo "$f,$lines,$pop" >> plans_wc.csv
+  fi
+done
+```
+
+```{r}
+cnts <- read_delim("data/matsim_inputs/plans_wc.csv", delim=",") 
+
+cnts %>% arrange(pop) %>% view()
+
+```
+
+We can see that people conduct activities from the plans file. However, we cannot see routes, because these are all input files and no output files w/ routes or events...
+
+![](images/clipboard-829928877.png){width="581"}
+
+# Supermarkets
+
+Libraries
+
+```{r}
+library(tidyverse)
+library(tmap)
+library(tmaptools)
+library(sf)
+library(osmdata)
+library(osmextract)
+
+```
+
+Create buffer around Gunma
+
+```{r}
+
+shp_gunma <- st_read("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/shp/gunma_2450/gunma_2450.shp")
+
+shp_gunma_buff <- st_buffer(shp_gunma, 5000) %>% st_transform(4326) 
+
+bbox_buf <- shp_gunma_buff %>% st_bbox()
+
+tmap_mode("view")
+tm_shape(shp_gunma_buff) + tm_borders() + tm_shape(shp_gunma) + tm_borders()
+```
+
+Function for grabbing osm data for a specific key/value pair and cleaning
+
+```{r}
+
+grab_osm_data <- function(keyy,valuee) {
+  osm_data <- opq(bbox_buf) |>
+  add_osm_feature(key = keyy, value = valuee) %>% 
+  osmdata_sf()
+
+  points <- osm_data$osm_points
+  polygons <- st_make_valid(osm_data$osm_polygons) 
+  polygon_centroids <- polygons %>% st_centroid()
+
+  points_within_polygon <- points %>%
+  st_filter(polygons %>% st_buffer(5))
+
+  points_clean <- points %>% filter(!osm_id %in% points_within_polygon$osm_id)
+
+  points_combined <- bind_rows(
+  points_clean %>% mutate(source = "points") %>% select(osm_id,source),
+  polygon_centroids %>% mutate(source = "polygons") %>% select(osm_id,source))
+
+  points_final <- points_combined %>% st_filter(shp_gunma_buff) %>% st_transform(2450) %>% mutate(type = valuee)
+  
+  return(points_final)
+}
+
+
+          
+```
+
+Supermarket
+
+```{r}
+points_final_supermarket <- grab_osm_data("shop","supermarket")
+tm_shape(shp_gunma_buff) + tm_borders() + tm_shape(points_final_supermarket) + tm_dots()
+```
+
+Public Baths
+
+```{r}
+
+points_final_baths <- grab_osm_data("amenity","public_bath")
+
+tm_shape(shp_gunma_buff) + tm_borders() + tm_shape(points_final_baths) + tm_dots()
+          
+```
+
+Hospital
+
+```{r}
+
+points_final_hospital <- grab_osm_data("amenity","hospital")
+
+tm_shape(shp_gunma_buff) + tm_borders() + tm_shape(points_final_hospital) + tm_dots()
+          
+```
+
+combine
+
+```{r}
+points_final <- bind_rows(points_final_supermarket,points_final_baths,points_final_hospital)
+```
+
+Plot results
+
+```{r}
+tmap_mode("view")
+  tm_shape(shp_gunma, ext = 1.1)+
+  tm_borders() +
+tm_shape(points_final) +
+  tm_dots(fill = "type", size = .4) 
+```
+
+Save Output
+
+```{bash}
+
+rm -rf ../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/osm_buffer5km/
+
+mkdir ../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/osm_buffer5km/
+
+```
+
+```{r}
+st_write(points_final, "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/osm_buffer5km/poi_2450.shp")
+
+points_final %>% 
+  mutate(
+    x = st_coordinates(.)[, 1],
+    y = st_coordinates(.)[, 2]
+  ) %>% st_drop_geometry() %>% 
+  select(x,y,type) %>% 
+  write_csv("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.0/input/osm_buffer5km/poi_2450.csv")
+
+
+```
