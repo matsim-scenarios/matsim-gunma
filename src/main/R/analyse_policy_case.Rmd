@@ -50,12 +50,13 @@ carAvail
 ```{r}
 persons_base %>% 
   mutate(carAvail = case_when(is.na(carAvail) ~ "never", .default = carAvail)) |>  
-  group_by(age_factor, carAvail) %>% count() %>% 
+  group_by(age_factor, sex, carAvail) %>% count() %>% 
   ungroup() %>%
-  group_by(age_factor) %>%  
+  group_by(age_factor, sex) %>%  
   mutate(share = n/sum(n)) %>%
   mutate(`Car Available` = factor(carAvail, levels = c("never","always"), labels = c("No","Yes"))) |> 
-  ggplot() + geom_col(aes(age_factor,share, fill = `Car Available`)) + theme_minimal(base_size = 14) + labs(x = "Age Group", y = "Share Car Availability")
+  mutate(sex = factor(sex, levels=c("f","m"), labels = c("Female", "Male"))) |> 
+  ggplot() + geom_col(aes(age_factor,share, fill = `Car Available`)) + theme_minimal(base_size = 14) + labs(x = "Age Group", y = "Share Car Availability") + facet_grid(~sex)+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 persons_policy %>% group_by(age_factor, carAvail) %>% count() %>% ungroup() %>% group_by(age_factor) %>%  mutate(share = n/sum(n)) %>% ggplot() + geom_col(aes(age_factor,share, fill = carAvail))
 

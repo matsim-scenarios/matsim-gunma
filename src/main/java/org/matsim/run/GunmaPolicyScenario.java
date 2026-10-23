@@ -76,7 +76,7 @@ import java.util.stream.Collectors;
 public class GunmaPolicyScenario extends GunmaBaseScenario {
 
 
-	private static final List<Integer> DRT_SERVICE_QUALITY_PROBE_TIMES = List.of(28800);
+	private static final List<Integer> DRT_SERVICE_QUALITY_PROBE_TIMES = List.of(22 * 3600);
 //	private static final List<Integer> DRT_SERVICE_QUALITY_PROBE_TIMES = IntStream.concat(
 //			IntStream.iterate(6 * 3600, time -> time <= 21 * 3600, time -> time + 60 * 60),
 //			IntStream.of(7 * 3600 + 30 * 60, 8 * 3600 + 30 * 60))
@@ -86,17 +86,32 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 
 
 
-	@CommandLine.Option(names = "--policy-case", description = "Which policy case to use", required = true)
+	@CommandLine.Option(names = "--policy-case", description = "Which policy case to use", defaultValue = "drtOnly")
 	private PolicyCase policyCase;
 
-//	@CommandLine.Option(names = "--drt-service-quality-probe-stop-pair-input-files", defaultValue = "", description = "Comma-separated accessibility stop-pair CSV/CSV.GZ files. When set, probe only their unique directed stop pairs.")
-//	private String drtServiceQualityProbeStopPairInputFiles = "";
-	private String drtServiceQualityProbeStopPairInputFiles = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-29a-personabased-1pct-85plus-drt-supermarket-linkpairs/analysis/accessibility/supermarket/drt_stop_pairs_queried.csv";
+	@CommandLine.Option(names = "--drt-service-quality-probe-stop-pair-input-files", description = "Comma-separated stop-pair CSV files; empty probes all pairs.")
+	private String drtServiceQualityProbeStopPairInputFiles = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-27a-spatial-drt-linkpairs/analysis/accessibility/shinkansen/drt_stop_pairs_queried.csv";
 
+	@CommandLine.Option(names = "--fleet-size", description = "Number of DRT/taxi vehicles (not sample-scaled).")
+	private int numTaxis = 250;
 
+	@CommandLine.Option(names = "--output-root", description = "Output directory prefix; the fleet size is appended.")
+	private String outputRoot = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-27b-spatial-drt-2200-";
 
-	private final int numTaxis = 250;
-	private final String outputRoot = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-29b-personabased-1pct-85plus-drt-supermarket-serviceprobe-";
+	@CommandLine.Option(names = "--policy-plans", defaultValue = "../v1.6/gunma-v1.6-100pct-plans-filtered85.xml.gz", description = "Policy plans, relative to the config file; used as-is without sampling.")
+	private String policyPlans;
+
+	@CommandLine.Option(names = "--policy-facilities", defaultValue = "d1_facilities-all.xml.gz", description = "Policy facilities, relative to the config file.")
+	private String policyFacilities;
+
+	@CommandLine.Option(names = "--service-area", defaultValue = "../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp")
+	private String serviceArea;
+
+	@CommandLine.Option(names = "--zones-shp", defaultValue = "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp")
+	private String zonesShp;
+
+	@CommandLine.Option(names = "--fleet-file", description = "Generated fleet file, relative to config; use a unique path per concurrent run.")
+	private String fleetFile;
 
 
 	private Set<Id<Link>> filteredLinkIds;
@@ -116,25 +131,26 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 
 		if (policyCase == PolicyCase.drtOnly || policyCase == PolicyCase.drtOnlyAsTaxi) {
 			//todo: update to v1.8
-			config.plans().setInputFile("../v1.6/gunma-v1.6-100pct-plans-filtered85.xml.gz");
-			config.facilities().setInputFile("d1_facilities-all.xml.gz");
+			if (numTaxis <= 0) throw new IllegalArgumentException("--fleet-size must be positive");
+			config.controller().setOutputDirectory(outputRoot + numTaxis);
+			config.plans().setInputFile(policyPlans);
+			config.facilities().setInputFile(policyFacilities);
 			config.controller().setLastIteration(0);
 			config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.deleteDirectoryIfExists);
 
 
-			String taxiFileName = "gunma-v" + GunmaDefaults.VERSION + "-taxis-" + numTaxis + ".xml";
+			String taxiFileName = fleetFile != null ? fleetFile : "gunma-v" + GunmaDefaults.VERSION + "-taxis-" + numTaxis + ".xml";
 			URL taxiFileUrl = ConfigGroup.getInputFileURL(config.getContext(), taxiFileName);
 			URL networkUrl = ConfigGroup.getInputFileURL(config.getContext(), config.network().getInputFile());
 
 			Network filteredNetwork = filterNetworkToShape(
 				networkUrl.getPath(),
-				"../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp"
+				serviceArea
 			);
 			generateTaxiFleet(numTaxis, taxiFileUrl.getPath(), filteredNetwork);
 			filteredLinkIds = filteredNetwork.getLinks().keySet();
 
 			DvrpConfigGroup dvrpConfig = ConfigUtils.addOrGetModule(config, DvrpConfigGroup.class);
-			config.controller().setOutputDirectory(outputRoot + numTaxis);
 			if (policyCase == PolicyCase.drtOnlyAsTaxi) {
 
 				ConfigUtils.addOrGetModule(config, MultiModeTaxiConfigGroup.class);
@@ -164,7 +180,7 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 				drtConfig.setChangeStartLinkToLastLinkInSchedule(false);
 				drtConfig.setDrtInsertionSearchParams(new ExtensiveInsertionSearchParams());
 				drtConfig.setOperationalScheme(DrtConfigGroup.OperationalScheme.door2door);
-				drtConfig.setDrtServiceAreaShapeFile("/Users/jakob/git/shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp");
+				drtConfig.setDrtServiceAreaShapeFile(serviceArea);
 
 				// ADD Service Level Probe
 				DrtServiceQualityProbeParams probeParams = drtConfig.getDrtServiceQualityProbeParams()
@@ -226,7 +242,7 @@ public class GunmaPolicyScenario extends GunmaBaseScenario {
 		}
 
 		ShpOptions shp = new ShpOptions(
-			"/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/jis_zones/jis_zones_75km_envelope.shp",
+			zonesShp,
 			null,
 			null
 		);

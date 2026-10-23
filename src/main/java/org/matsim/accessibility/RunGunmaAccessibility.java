@@ -32,30 +32,23 @@ import org.matsim.dashboard.AccessibilityDashboardGunma;
 import org.matsim.simwrapper.SimWrapper;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 
+import picocli.CommandLine;
+
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.concurrent.Callable;
 
 /**
  * Runs offline accessibility analysis for Gunma Prefecture in Japan.
  */
-public final class RunGunmaAccessibility {
-
-	// if outputDir already exists, and you wanna add your analysis there, then leave dirToCopy blank.
-	static final String outputDir = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-29a-personabased-1pct-85plus-drt-supermarket-linkpairs/";
-			static final String dirToCopy = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-13-base/";
-//	static final String dirToCopy = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-26e-personbased-100pct-500/";
-//	static final String dirToCopy = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-28a-personabsed-1pct-85plus-drt-linkpairs";
-
-	//
-	private static final String serviceProbeFile = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-28b-personabsed-drt-750/gunma.drt_service_quality_probes.csv.gz";
-//	private static final String serviceProbeFile = outputDir + "gunma.drt_service_quality_probes.csv.gz";
-
-
+@CommandLine.Command(name = "gunma-accessibility", mixinStandardHelpOptions = true)
+public final class RunGunmaAccessibility implements Callable<Integer> {
 
 	static final String coordinateSystem = "EPSG:2450";
 
@@ -64,29 +57,15 @@ public final class RunGunmaAccessibility {
 	static final List<String> relevantPois = List.of("supermarket");
 //	static final List<String> relevantPois = List.of("shinkansen");
 
-//	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.car);
-	static final List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.estimatedDrt);
 
 	// toggle for person-based or location-based accessibility
 	private static final boolean personBased = true;
 
-	// this is a pre-pre-processing step aimed to reduce the number of stop or link pairs examined.
-	private static final boolean writeRelevantStopPairs = true;
 	private static final int accessibilityTileSize=500;
-
-
-	// choose whether DRT LOS should be constant over study area, be derived from a shape file (more heterogenous but aggregated), or the service probe output (most heterogenous)
-	public enum DrtLos {homogenous, avgOfCompletedTripsFromShp, drtServiceLevelProbe}
-	private static final DrtLos drtLos = DrtLos.homogenous;
-
-	private static final PopulationFilter filterPopulation = PopulationFilter.filter85plus;
-
 
 	// who are we calculating accessibility for?
 //	static String populationFile = "/Users/jakob/git/matsim-gunma/input/v1.6/gunma-v1.6-100pct-plans.xml.gz";
 //	static String populationFile = "/Users/jakob/git/matsim-gunma/input/v1.6/gunma-v1.6-100pct-plans-filtered85.xml.gz";
-	static String populationFile = "gunma.output_plans.xml.gz";
-
 
 	// DRT Estimator
 
@@ -105,7 +84,6 @@ public final class RunGunmaAccessibility {
 //	private static final int baseTypicalWaitingTime = 838;
 //
 	private static final int drtConstantWaitTime = 632;
-
 
 	// LARGE: Fleet Size of 1500 vehicles
 //	static final String outputDir = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-04-13/01-drt-1500/";
@@ -134,45 +112,79 @@ public final class RunGunmaAccessibility {
 //	private static double drtScoringMonetaryDist = 0.0;
 	// 	 Constant Wait time
 
+	@CommandLine.Option(names = "--modes", split = ",", description = "Accessibility modes, separated by commas.")
+	private List<Modes4Accessibility> accModes = List.of(Modes4Accessibility.estimatedDrt);
 
+	@CommandLine.Option(names = "--output", description = "Simulation output directory to analyse in place.")
+	private String outputDir = "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-09-30a-drt-supermarket-fleets-redo-100pct/output-drt-750";
+
+	@CommandLine.Option(names = "--copy-from", description = "Optional source output directory to copy before analysis.")
+	private String dirToCopy = "";
+//	private String dirToCopy = "../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.6/2026-03-13-base/";
+
+	@CommandLine.Option(names = "--service-probe-file", description = "Probe CSV; defaults to the probe file in --output.")
+	private String serviceProbeFile;
+
+	@CommandLine.Option(names = "--network", description = "Network override; defaults to output_network.xml.gz in --output.")
+	private String networkFile;
+
+	@CommandLine.Option(names = "--pois-file", defaultValue = "../shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/pois.xml", description = "POI facilities XML.")
+	private String poisFile;
+
+	// this is a pre-pre-processing step aimed to reduce the number of stop or link pairs examined.
+	@CommandLine.Option(names = "--write-stop-pairs", negatable = true, description = "Write queried DRT stop pairs.")
+	private boolean writeRelevantStopPairs = false;
+
+	@CommandLine.Option(names = "--drt-los")
+	private DrtLos drtLos = DrtLos.drtServiceLevelProbe;
+
+	@CommandLine.Option(names = "--population-filter", defaultValue = "base")
+	private PopulationFilter filterPopulation;
+
+	@CommandLine.Option(names = "--population", description = "Population override; defaults to output_plans.xml.gz in --output.")
+	private String populationFile="/Users/jakob/git/matsim-gunma/input/v1.6/gunma-v1.6-1pct-plans-filtered85.xml.gz";
 
 	private RunGunmaAccessibility() {
-		// prevent instantiation
+		// Instantiated by the command-line entry point.
 	}
 
+	public static void main(String[] args) {
+		System.exit(new CommandLine(new RunGunmaAccessibility()).execute(args));
+	}
 
-	static void main(String[] args) throws IOException {
-
-		if(!dirToCopy.isBlank())
+	@Override
+	public Integer call() throws IOException {
+		outputDir = Path.of(outputDir).toAbsolutePath().normalize().toString();
+		if (!dirToCopy.isBlank()) {
 			FileUtils.copyDirectory(new File(dirToCopy), new File(outputDir));
-
-		String mapCenterString = "139.0266,36.5211";
-
-
+		} else {
+			Files.createDirectories(Path.of(outputDir));
+		}
+		if (networkFile == null) networkFile = ApplicationUtils.matchInput("output_network.xml.gz", Path.of(outputDir)).toString();
+		if (populationFile == null) populationFile = ApplicationUtils.matchInput("output_plans.xml.gz", Path.of(outputDir)).toString();
+		if (serviceProbeFile == null && drtLos == DrtLos.drtServiceLevelProbe) {
+			serviceProbeFile = ApplicationUtils.matchInput("drt_service_quality_probes.csv.gz", Path.of(outputDir)).toString();
+		}
+		networkFile = Path.of(networkFile).toAbsolutePath().toString();
+		populationFile = Path.of(populationFile).toAbsolutePath().toString();
+		poisFile = Path.of(poisFile).toAbsolutePath().toString();
 		calculateAccessibility();
-
-
-		// CREATE DASHBOARD
-//		createDashboard(mapCenterString);
+		return 0;
 	}
 
 	@SuppressWarnings("checkstyle:JavaNCSS")
-	private static void calculateAccessibility() throws IOException {
+	private void calculateAccessibility() throws IOException {
 		AccessibilityConfigGroup accConfig = new AccessibilityConfigGroup();
 
 		accConfig.setWriteDrtStopPairs(writeRelevantStopPairs);
-
-
 
 		if (personBased) {
 
 			accConfig.setPersonBased(true);
 			accConfig.setAreaOfAccessibilityComputation(AccessibilityConfigGroup.AreaOfAccesssibilityComputation.fromPopulation);
 
-
 		} else {
 			accConfig.setAreaOfAccessibilityComputation(AccessibilityConfigGroup.AreaOfAccesssibilityComputation.fromShapeFile);
-
 
 			double boundingBoxBroadening = 0;
 			accConfig.setShapeFileCellBasedAccessibility("../shared-svn/projects/matsim-gunma/data/raw/01_shapefiles/gunma_2450/gunma_2450.shp");
@@ -196,18 +208,6 @@ public final class RunGunmaAccessibility {
 
 		String configFile = ApplicationUtils.matchInput("output_config.xml", Path.of(outputDir)).toString();
 		String eventsFile = ApplicationUtils.matchInput("output_events.xml.gz", Path.of(outputDir)).toString();
-//		String populationFile = ApplicationUtils.matchInput("output_plans.xml.gz", Path.of(outputDir)).toString();
-//		String networkFile = ApplicationUtils.matchInput("output_network.xml.gz", Path.of(outputDir)).toString();
-
-//		String networkFile = "input/v" + OpenGunmaScenario.VERSION + "/gunma-v" + OpenGunmaScenario.VERSION + "-network.xml.gz";
-//		String networkFile = "gunma.output_network.xml.gz";
-		String networkFile = "/Users/jakob/git/matsim-gunma/output-drt-750/gunma.output_network.xml.gz";
-
-
-
-		String poisFile = "/Users/jakob/git/shared-svn/projects/matsim-gunma/data/processed/01_shapefiles/osm_buffer5km/pois.xml";
-
-
 
 		final Config config = ConfigUtils.loadConfig(configFile);
 
@@ -225,11 +225,6 @@ public final class RunGunmaAccessibility {
 
 		config.network().setInputFile(networkFile);
 		config.addModule(accConfig);
-
-
-
-
-
 
 		//DRT config
 		// drt config
@@ -251,7 +246,6 @@ public final class RunGunmaAccessibility {
 		config.addModule(multiModeDrtConfigGroup);
 		config.addModule(drtConfigGroup);
 
-
 		// scoring
 		ScoringConfigGroup.ModeParams drtParams = new ScoringConfigGroup.ModeParams(TransportMode.drt);
 		drtParams.setConstant(drtScoringAsc);
@@ -260,17 +254,12 @@ public final class RunGunmaAccessibility {
 		drtParams.setMonetaryDistanceRate(drtScoringMonetaryDist);
 		config.scoring().addModeParams(drtParams);
 
-
 		// SCENARIO
-
-
 
 		MutableScenario scenario = (MutableScenario) ScenarioUtils.loadScenario(config);
 
-
 		Set<Id<Person>> commutersIds = scenario.getPopulation().getPersons().keySet().stream().filter(id -> id.toString().startsWith("commuter_")).collect(Collectors.toSet());
 		commutersIds.forEach(id -> scenario.getPopulation().removePerson(id));
-
 
 		if (filterPopulation == PopulationFilter.filter85plus) {
 
@@ -303,7 +292,6 @@ public final class RunGunmaAccessibility {
 				scenario.getPopulation().getPersons().remove(personId);
 			}
 		}
-
 
 		//		== Bounding box from persons home coords ==
 		double minX = Double.POSITIVE_INFINITY;
@@ -357,20 +345,17 @@ public final class RunGunmaAccessibility {
 		builder.build().run();
 	}
 
-	private static void createDashboard(String mapCenterString) {
+	private void createDashboard(String mapCenterString) {
 
 		final Config config = ConfigUtils.createConfig();
 		config.controller().setOutputDirectory(outputDir);
 		config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.overwriteExistingFiles);
-
 
 		//CONFIG
 		config.controller().setLastIteration(0);
 		config.controller().setWritePlansInterval(-1);
 		config.controller().setWriteEventsInterval(-1);
 		config.global().setCoordinateSystem(coordinateSystem);
-
-
 
 		config.facilities().setFacilitiesSource(FacilitiesConfigGroup.FacilitiesSource.none);
 
@@ -381,7 +366,6 @@ public final class RunGunmaAccessibility {
 			group.defaultParams().setMapCenter(mapCenterString);
 		}
 		group.setDefaultDashboards(SimWrapperConfigGroup.DefaultDashboardsMode.disabled);
-
 
 		SimWrapper sw = SimWrapper.create(config)
 			.addDashboard(new AccessibilityDashboardGunma(coordinateSystem, relevantPois, List.of(Modes4Accessibility.car)));
@@ -394,6 +378,15 @@ public final class RunGunmaAccessibility {
 		}
 		sw.run(Path.of(outputDir));
 
+	}
+
+	/**
+	 * Sources of DRT service quality used by the accessibility estimator.
+	 */
+	public enum DrtLos {
+		homogenous,
+		avgOfCompletedTripsFromShp,
+		drtServiceLevelProbe
 	}
 
 	/**
