@@ -4,129 +4,79 @@ format: html
 editor: visual
 ---
 
-## Normal ASC Calibration
 
-download necessary files
+```{r}
+foldername <- "2026-10-23b-calib-age-1pct-50it-v1.9" # Change this for the next experiment.
+results_dir <- file.path("/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.9/_develop", foldername, "results")
+Sys.setenv(GUNMA_EXPERIMENT = foldername, GUNMA_RESULTS = results_dir)
+```
+
+Run the setup above, then run this download block when new results are available. Downloads are skipped when rendering the report.
 
 ```{bash}
-
-# foldername="2026-03-12d-calibration-03_30"
-
-# foldername="2026-05-15b-calibration-1pct-0.02-20"
-
-foldername="2026-05-27b-calibration-10pct-50iter-extended"
-
-
-cluster_dir="mc:/net/ils/rehmann/matsim-gunma/$foldername"
-local_dir="$foldername"
-
-mkdir -p "$local_dir"
-
-scp "$cluster_dir"/runs/*/*.modestats.csv "$local_dir"/
-scp "$cluster_dir"/params/*.yaml "$local_dir"/
-```
-
-libraries
-
-```{r}
-library(tidyverse)
-library(yaml)
-
-# local_dir <- "2026-03-11a-calibration-03-15"
-# local_dir <- "2026-03-11b-calibration-01_15"
-# local_dir <- "2026-03-11c-calibration-01_30" 
-# local_dir <- "2026-03-11d-calibration-03_30" #5
-# local_dir <- "2026-03-12a-calibration-03_15"
-# local_dir <- "2026-03-12b-calibration-01_15" #5 okay
-# local_dir <- "2026-03-12c-calibration-01_30"
-# local_dir <- "2026-03-12d-calibration-03_30"
-
-local_dir <- "2026-05-27b-calibration-10pct-50iter-extended"
-
-
-
-```
-
-```{r}
-files <- list.files(local_dir, pattern = "\\.ya?ml$", full.names = TRUE)
-configs <- lapply(files, read_yaml)
-
-rows <- list()
-k <- 1
-
-for (runNum in seq_along(configs)) {
-  for (modeNum in seq_along(configs[[runNum]]$planCalcScore$scoringParameters[[1]]$modeParams)) {
-    mode <- configs[[runNum]]$planCalcScore$scoringParameters[[1]]$modeParams[[modeNum]]$mode
-    asc  <- configs[[runNum]]$planCalcScore$scoringParameters[[1]]$modeParams[[modeNum]]$constant
-    rows[[k]] <- data.frame(run = runNum - 1, mode = mode, asc = asc, stringsAsFactors = FALSE)
-    k <- k + 1
-  }
-}
-
-df <- do.call(rbind, rows)
-
-ggplot(df) + geom_line(aes(run,asc, col = mode))  + scale_x_continuous(breaks = seq(0,20, by = 1), minor_breaks = NULL)
-```
-
-```{r}
-files_mode <- list.files(local_dir, pattern = "\\.modestats.csv$", full.names = TRUE)
-mode_stats <- lapply(files_mode, read_delim)
-rows <- list()
-k <- 1
-
-
-library(purrr)
-
-df_mode <- map_dfr(seq_along(mode_stats), \(runNum)
-  mode_stats[[runNum]] %>%
-    slice_tail(n = 1) %>%
-    mutate(run = runNum - 1)
-)
-
-dot_pos <- 12
-goal <-  data.frame(mode = c("bike", "car","ride","walk"), run = c(dot_pos,dot_pos,dot_pos,dot_pos), share = c(0.086,0.682,0.115,0.117))
-
-df_mode %>% 
-  pivot_longer(cols = -c(iteration,run), names_to = "mode", values_to =  "share") %>% 
-  ggplot() + 
-  geom_line(aes(run, share, col = mode)) +
-  geom_point(data = goal, mapping = aes(run, share, col = mode)) +
-  scale_x_continuous(breaks = seq(0,20, by = 1), minor_breaks = NULL)
-
+#| eval: false
+: "${GUNMA_EXPERIMENT:?Run the R setup block above first}"
+: "${GUNMA_RESULTS:?Run the R setup block above first}"
+cluster_dir="mc:/net/ils/rehmann/matsim-gunma/$GUNMA_EXPERIMENT/results"
+mkdir -p "$GUNMA_RESULTS"
+rsync -avm -e "ssh -T -o RemoteCommand=none -o RequestTTY=no" \
+  --include='/overall/' --include='/age/' --include='/comparison/' \
+  --exclude='/*/' \
+  --include='*/' \
+  --include='selection.json' --include='selected-config.xml' \
+  --include='trial-*.xml' --include='*.output_config.xml' \
+  --include='*.modestats.csv' --include='*.scorestats.csv' \
+  --include='*.output_trips.csv.gz' --include='*.output_persons.csv.gz' \
+  --include='*.output_legs.csv.gz' \
+  --exclude='*' \
+  "$cluster_dir/" "$GUNMA_RESULTS/"
 ```
 
 # Age Based ASC Calibration
 
-```{bash}
-
-
-foldername="2026-08-31a-calib-age-1pct-50iter"
-
-cluster_dir="mc:/net/ils/rehmann/matsim-gunma/$foldername"
-local_dir="$foldername"
-
-mkdir -p "$local_dir"
-
-scp "$cluster_dir"/params/*.yaml "$local_dir"/
-# scp "$cluster_dir"/runs/*/*.modestats.csv "$local_dir"/
-# scp "$cluster_dir"/runs/*/*.output_trips.csv.gz "$local_dir"/
-# scp "$cluster_dir"/runs/*/*.output_persons.csv.gz "$local_dir"/
-
-```
 
 libraries
 
 ```{r}
 library(tidyverse)
 library(yaml)
+library(xml2)
 
-local_dir <- "2026-08-31a-calib-age-1pct-50iter"
+local_dir <- file.path(results_dir, "age")
+# Historical YAML layout: set local_dir to the old study folder instead.
 
 ```
 
 ```{r}
-files <- list.files(local_dir, pattern = "\\.ya?ml$", full.names = TRUE)
-configs <- lapply(files, read_yaml)
+files <- list.files(local_dir, pattern = "^trial-[0-9]+\\.xml$", full.names = TRUE, recursive = TRUE)
+if (!length(files)) {
+  files <- list.files(local_dir, pattern = "^run[0-9]+\\.ya?ml$", full.names = TRUE, recursive = TRUE)
+}
+if (!length(files)) stop("No trial-*.xml or runN.yaml parameter files found in local_dir")
+config_runs <- as.integer(str_extract(basename(files), "[0-9]+"))
+stopifnot(!anyDuplicated(config_runs))
+files <- files[order(config_runs)]
+config_runs <- sort(config_runs)
+age_trial <- if (file.exists(file.path(local_dir, "selection.json"))) jsonlite::fromJSON(file.path(local_dir, "selection.json"))$trial else max(config_runs)
+
+read_age_config <- function(file) {
+  if (grepl("\\.ya?ml$", file)) return(read_yaml(file))
+  doc <- read_xml(file, options = "NONET")
+  value <- function(node, name) xml_attr(xml_find_first(node, paste0("param[@name='", name, "']")), "value")
+  groups <- xml_find_all(doc, "/config/module[@name='advancedScoring']/parameterset[@type='scoringParameters']")
+  base_modes <- xml_find_all(doc, "/config/module[@name='scoring']/parameterset[@type='scoringParameters'][not(param[@name='subpopulation']) or param[@name='subpopulation']/@value='null']/parameterset[@type='modeParams']")
+  list(
+    advancedScoring = list(scoringParameters = map(groups, function(group) {
+      list(age_group = value(group, "age_group"),
+           modeParams = map(xml_find_all(group, "parameterset[@type='modeParams']"), function(mode) {
+             list(mode = value(mode, "mode"), deltaConstant = as.numeric(value(mode, "deltaConstant")))
+           }))
+    })),
+    base_constants = setNames(map_dbl(base_modes, ~ as.numeric(value(.x, "constant"))),
+                              map_chr(base_modes, ~ value(.x, "mode")))
+  )
+}
+configs <- lapply(files, read_age_config)
 
 rows <- list()
 k <- 1
@@ -143,7 +93,7 @@ for (runNum in seq_along(configs)) {
       asc <- mode_params[[modeNum]]$deltaConstant
 
       rows[[k]] <- data.frame(
-        run = runNum - 1,
+        run = config_runs[runNum],
         age_group = age_group,
         mode = mode,
         asc = asc,
@@ -170,23 +120,43 @@ library(dplyr)
 library(tidyr)
 library(knitr)
 
+# YAML-only historical files contain deltas, so retain their existing base constants.
+base_asc <- configs[[match(age_trial, config_runs)]]$base_constants
+if (is.null(base_asc)) base_asc <- c(car = -1.13, bike = -1.73, ride = -1.39)
+
 asc_table <- df %>%
-  filter(run == max(run)) %>%
+  filter(run == age_trial) %>%
   select(age_group, mode, asc) %>%
   pivot_wider(names_from = mode, values_from = asc) %>%
   arrange(age_group) %>%
   select(age_group, any_of(c("car", "ride", "bike", "walk"))) |> 
-  mutate(car_adj = car - 1.13, bike_adj = bike -1.73,ride_adj = ride-1.39)
+  mutate(car_final = car + base_asc[["car"]], bike_final = bike + base_asc[["bike"]], ride_final = ride + base_asc[["ride"]])
+
 
 kable(
   asc_table,
-  format = "latex",
   digits = 3,
   row.names = FALSE,
   col.names = c("Age group", names(asc_table)[-1]),
   caption = "Age-specific alternative-specific constant corrections (utils).",
   label = "asc-corrections"
 )
+
+
+knitr::kable(
+  asc_table |>
+    select(
+      `Age group` = age_group,
+      Car = car_final,
+      Ride = ride_final,
+      Bike = bike_final
+    ),
+  format = "latex",
+  digits = 3,
+  row.names = FALSE,
+  caption = "Effective alternative-specific constants by age group. Walk is fixed at zero.",
+  label = "age-asc"
+) |> cat()
 ```
 
 Age-Based Modal split.
@@ -212,15 +182,29 @@ age_group <- function(age) {
 persons_files <- sort(list.files(
   local_dir,
   pattern = "\\.output_persons\\.csv\\.gz$",
-  full.names = TRUE
+  full.names = TRUE,
+  recursive = TRUE
 ))
 trips_files <- sort(list.files(
   local_dir,
   pattern = "\\.output_trips\\.csv\\.gz$",
-  full.names = TRUE
+  full.names = TRUE,
+  recursive = TRUE
 ))
 
-stopifnot(length(persons_files) == length(trips_files))
+output_run <- function(files) {
+  parent <- basename(dirname(files))
+  as.integer(ifelse(grepl("^run-[0-9]+$", parent), sub("^run-", "", parent),
+                    str_extract(basename(files), "^[0-9]+")))
+}
+person_runs <- output_run(persons_files)
+trip_runs <- output_run(trips_files)
+stopifnot(!anyNA(person_runs), !anyNA(trip_runs), !anyDuplicated(person_runs),
+          !anyDuplicated(trip_runs), setequal(person_runs, trip_runs))
+if (!length(person_runs)) stop("Download the persons/trips outputs to plot age-based modal splits")
+persons_files <- persons_files[order(person_runs)]
+output_runs <- sort(person_runs)
+trips_files <- trips_files[match(output_runs, trip_runs)]
 
 simulated_age_split <- map_dfr(seq_along(persons_files), function(runNum) {
   persons <- read_delim(persons_files[[runNum]], show_col_types = FALSE) %>%
@@ -244,7 +228,7 @@ simulated_age_split <- map_dfr(seq_along(persons_files), function(runNum) {
     ) %>%
     group_by(age_group) %>%
     mutate(
-      run = runNum - 1,
+      run = output_runs[runNum],
       share = n / sum(n)
     ) %>%
     ungroup()
@@ -253,7 +237,7 @@ simulated_age_split <- map_dfr(seq_along(persons_files), function(runNum) {
 # The reference file contains shares by distance group. Aggregate over distance
 # and renormalize so that the four modal shares sum to one within each age group.
 target_age_split <- read_csv(
-  "resources/mode_share_per_group_dist_ref.csv",
+  "/Users/jakob/git/matsim-gunma/resources/mode_share_per_group_dist_ref.csv",
   show_col_types = FALSE
 ) %>%
   mutate(
@@ -315,7 +299,8 @@ mode_cols <- c(
 font_size <- 22
 
 first_iteration <- min(simulated_age_split$run)
-last_iteration <- max(simulated_age_split$run)
+last_iteration <- age_trial
+stopifnot(age_trial %in% output_runs)
 
 modal_split_comparison <- bind_rows(
   target_age_split %>%
@@ -378,14 +363,21 @@ ggplot(modal_split_comparison, aes(age_group, share, fill = Mode)) +
 
 # NEW PLOTS FOR EWGT PAPER
 
+
 ```{r}
-persons_base <-  read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.8/2026-05-27f-basePolicy-rawdog/output-base/gunma.output_persons.csv.gz") %>%  
+overall_trial <- jsonlite::fromJSON(file.path(results_dir, "overall", "selection.json"))$trial
+overall_dir <- file.path(results_dir, "overall", sprintf("run-%03d", overall_trial))
+overall_persons <- list.files(overall_dir, pattern = "\\.output_persons\\.csv\\.gz$", full.names = TRUE)
+overall_trips <- list.files(overall_dir, pattern = "\\.output_trips\\.csv\\.gz$", full.names = TRUE)
+stopifnot(length(overall_persons) == 1, length(overall_trips) == 1)
+
+persons_base <- read_delim(overall_persons, show_col_types = FALSE) %>%
   filter(!str_starts(person,"commuter")) %>%
   mutate(age_factor = case_when(age <18 ~ "0-17", age < 30 ~ "18-29", age <45 ~ "30-44", age <65 ~ "45-64", age <75 ~ "65-74", age < 85 ~ "75-84", .default = "85+")) 
   # mutate(age_round = floor(age/10)*10) %>% 
   # mutate(age_factor = factor(age_round, levels = seq(0,100,10), labels = c(paste0(seq(0,80,10),"-",seq(10,90,10)),"90+","90+")))
 
-trips_base <- read_delim("../public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.8/2026-05-27f-basePolicy-rawdog/output-base/gunma.output_trips.csv.gz") %>%  
+trips_base <- read_delim(overall_trips, show_col_types = FALSE) %>%
   filter(!str_starts(person,"commuter")) 
 
 
@@ -420,8 +412,7 @@ by age only
 # Stacked bars with Model, Model v2, and Ref side by side within each age group
 # Model = the first calibration run; Model v2 = the final calibration run.
 
-mode_share_v1 |> view()
-modal_split_side_by_side_v1 <- modal_split_comparison %>% 
+modal_split_side_by_side <- modal_split_comparison %>%
   filter(scenario !="Iteration 0") |> 
   bind_rows(mode_share_v1_age) |> 
   mutate(
@@ -431,10 +422,11 @@ modal_split_side_by_side_v1 <- modal_split_comparison %>%
       "Model v1" = "Model v1",
       "Last iteration" = "Model v2"
     )) |> 
-    filter(scenario != "Model v2") |> 
-    mutate(scenario = factor(scenario, levels = c("Model v1","Reference"))) |> 
+    mutate(scenario = factor(scenario, levels = c("Model v1", "Model v2", "Reference"))) |>
     filter(!is.na(age_group)) 
 
+modal_split_side_by_side_v1 <- modal_split_side_by_side |> filter(scenario != "Model v2")
+scenario_labels <- modal_split_side_by_side |> distinct(age_group, scenario)
 scenario_labels_v1 <- modal_split_side_by_side_v1 %>%
   distinct(age_group, scenario)
 
@@ -569,10 +561,10 @@ with sex
 # not contain sex, so the overall reference shares are shown in both plots as
 # a common benchmark rather than as sex-specific reference values.
 simulated_sex_split <- map_dfr(
-  c(first_iteration, last_iteration),
+  unique(c(first_iteration, last_iteration)),
   function(run_to_use) {
     persons <- read_delim(
-      persons_files[[run_to_use + 1]],
+      persons_files[[match(run_to_use, output_runs)]],
       show_col_types = FALSE
     ) %>%
       select(person, age, sex) %>%
@@ -580,7 +572,7 @@ simulated_sex_split <- map_dfr(
       mutate(age_group = factor(age_group(age), levels = age_groups))
 
     read_delim(
-      trips_files[[run_to_use + 1]],
+      trips_files[[match(run_to_use, output_runs)]],
       show_col_types = FALSE
     ) %>%
       select(person, main_mode) %>%
@@ -596,7 +588,7 @@ simulated_sex_split <- map_dfr(
       group_by(age_group, sex) %>%
       mutate(
         share = n / sum(n),
-        scenario = if_else(run_to_use == first_iteration, "Model", "Model v2")
+        scenario = if_else(run_to_use == last_iteration, "Model v2", "Model")
       ) %>%
       ungroup()
   }
@@ -773,4 +765,103 @@ mode_share_women_model
 
 ggsave("modal_split_men_model_ref.png", mode_share_men_model, width = 8, height = 6)
 ggsave("modal_split_women_model_ref.png", mode_share_women_model, width = 8, height = 6)
+```
+
+
+
+# Deprecated:
+
+## Normal ASC Calibration
+
+download necessary files
+
+```{bash}
+#| eval: false
+
+# foldername="2026-03-12d-calibration-03_30"
+
+# foldername="2026-05-15b-calibration-1pct-0.02-20"
+
+foldername="2026-05-27b-calibration-10pct-50iter-extended"
+
+
+cluster_dir="mc:/net/ils/rehmann/matsim-gunma/$foldername"
+local_dir="$foldername"
+
+mkdir -p "$local_dir"
+
+scp "$cluster_dir"/runs/*/*.modestats.csv "$local_dir"/
+scp "$cluster_dir"/params/*.yaml "$local_dir"/
+```
+
+libraries
+
+```{r}
+#| eval: false
+library(tidyverse)
+library(yaml)
+
+# local_dir <- "2026-03-11a-calibration-03-15"
+# local_dir <- "2026-03-11b-calibration-01_15"
+# local_dir <- "2026-03-11c-calibration-01_30"
+# local_dir <- "2026-03-11d-calibration-03_30" #5
+# local_dir <- "2026-03-12a-calibration-03_15"
+# local_dir <- "2026-03-12b-calibration-01_15" #5 okay
+# local_dir <- "2026-03-12c-calibration-01_30"
+# local_dir <- "2026-03-12d-calibration-03_30"
+
+local_dir <- "2026-05-27b-calibration-10pct-50iter-extended"
+
+
+
+```
+
+```{r}
+#| eval: false
+files <- list.files(local_dir, pattern = "\\.ya?ml$", full.names = TRUE)
+configs <- lapply(files, read_yaml)
+
+rows <- list()
+k <- 1
+
+for (runNum in seq_along(configs)) {
+  for (modeNum in seq_along(configs[[runNum]]$planCalcScore$scoringParameters[[1]]$modeParams)) {
+    mode <- configs[[runNum]]$planCalcScore$scoringParameters[[1]]$modeParams[[modeNum]]$mode
+    asc  <- configs[[runNum]]$planCalcScore$scoringParameters[[1]]$modeParams[[modeNum]]$constant
+    rows[[k]] <- data.frame(run = runNum - 1, mode = mode, asc = asc, stringsAsFactors = FALSE)
+    k <- k + 1
+  }
+}
+
+df <- do.call(rbind, rows)
+
+ggplot(df) + geom_line(aes(run,asc, col = mode))  + scale_x_continuous(breaks = seq(0,20, by = 1), minor_breaks = NULL)
+```
+
+```{r}
+#| eval: false
+files_mode <- list.files(local_dir, pattern = "\\.modestats.csv$", full.names = TRUE)
+mode_stats <- lapply(files_mode, read_delim)
+rows <- list()
+k <- 1
+
+
+library(purrr)
+
+df_mode <- map_dfr(seq_along(mode_stats), \(runNum)
+  mode_stats[[runNum]] %>%
+    slice_tail(n = 1) %>%
+    mutate(run = runNum - 1)
+)
+
+dot_pos <- 12
+goal <-  data.frame(mode = c("bike", "car","ride","walk"), run = c(dot_pos,dot_pos,dot_pos,dot_pos), share = c(0.086,0.682,0.115,0.117))
+
+df_mode %>%
+  pivot_longer(cols = -c(iteration,run), names_to = "mode", values_to =  "share") %>%
+  ggplot() +
+  geom_line(aes(run, share, col = mode)) +
+  geom_point(data = goal, mapping = aes(run, share, col = mode)) +
+  scale_x_continuous(breaks = seq(0,20, by = 1), minor_breaks = NULL)
+
 ```

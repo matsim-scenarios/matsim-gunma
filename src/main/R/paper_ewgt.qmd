@@ -1,0 +1,1063 @@
+---
+title: "EWGT paper figures"
+format:
+  html:
+    embed-resources: true
+    toc: true
+execute:
+  echo: false
+  warning: false
+  error: false
+---
+
+```{r}
+# Completed 300-iteration experiment: calibration, fresh baseline, and policy all use this source.
+experiment <- "2026-10-23a-calib-age-1pct-300it-v1.9"
+# These folders have different roles: simulation results, analysis code, survey data, and paper files.
+scenario_root <- "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.9"
+project_root <- "/Users/jakob/git/matsim-gunma"
+shared_root <- "/Users/jakob/git/shared-svn/projects/matsim-gunma"
+paper_root <- "/Users/jakob/git/PAPER-EWGT"
+results_dir <- file.path(scenario_root, "_develop", experiment, "experiments/v1.9/results")
+# The map describes the full synthetic population; behavioural results still use the selected run.
+map_population_file <- file.path(project_root, "input/v1.8/e05_plans_static-100pct.xml.gz")
+map_extractor <- file.path(project_root, "scripts/extract-map-population.py")
+map_coordinates_file <- file.path(project_root, "target/paper-ewgt/map-population-100pct.csv.gz")
+# PNGs go straight into the paper; CSVs and copyable LaTeX go into a separate experiment folder.
+figure_dir <- file.path(paper_root, "figures")
+table_dir <- file.path(project_root, "target", "paper-ewgt", experiment)
+# Pass the same experiment and destination to the optional Bash download block below.
+Sys.setenv(GUNMA_EXPERIMENT = experiment, GUNMA_RESULTS = results_dir)
+```
+
+## Optional download
+
+Run the setup above before running this Bash block manually. Rendering never connects to the cluster. The transfer preserves the overall, age, and comparison folders; events, networks, and iteration directories are excluded.
+
+```{bash}
+#| eval: false
+#| echo: true
+: "${GUNMA_EXPERIMENT:?Run the R setup first}"
+: "${GUNMA_RESULTS:?Run the R setup first}"
+mkdir -p "$GUNMA_RESULTS"
+rsync -avm -e "ssh -T -o RemoteCommand=none -o RequestTTY=no" \
+  --include='/overall/' --include='/age/' --include='/comparison/' \
+  --exclude='/*/' --exclude='ITERS/' \
+  --include='*/' \
+  --include='selection.json' --include='selected-config.xml' \
+  --include='trial-*.xml' --include='*.output_config.xml' \
+  --include='*.modestats.csv' --include='*.scorestats.csv' \
+  --include='*.output_persons.csv.gz' --include='*.output_trips.csv.gz' \
+  --include='*.output_legs.csv.gz' --include='count_comparison_by_hour.csv' \
+  --exclude='*' \
+  "mc:/net/ils/rehmann/matsim-gunma/$GUNMA_EXPERIMENT/experiments/v1.9/results/" "$GUNMA_RESULTS/"
+```
+
+## Inputs and checks
+
+All calibration, baseline, policy, and traffic-count inputs use the completed 300-iteration `experiment`. Both calibration trials are read from their final `selection.json` files. The input inventory records every source path. Survey and boundary files are fixed reference inputs. Missing evidence stops the document before any paper figures are replaced.
+
+```{r}
+# Packages: data handling and plotting, spatial boundaries, XML configs, Sankey plots, and panel layouts.
+library(tidyverse)
+library(sf)
+library(xml2)
+library(ggalluvial)
+library(patchwork)
+
+# 1. Find the selected trial from each calibration stage; do not assume the final trial is the best.
+selection_files <- file.path(results_dir, c("overall", "age"), "selection.json")
+missing <- selection_files[!file.exists(selection_files)]
+if (length(missing)) stop("Missing completed calibration selections; run the download block first:\n",
+                          paste(missing, collapse = "\n"))
+overall_selection <- jsonlite::fromJSON(selection_files[1])
+age_selection <- jsonlite::fromJSON(selection_files[2])
+stopifnot(overall_selection$stage == "overall", age_selection$stage == "age")
+for (selection in list(overall_selection, age_selection)) {
+  completed <- selection$history |> filter(is.finite(mae)) |> arrange(mae, trial)
+  stopifnot(nrow(completed) > 0, selection$trial == completed$trial[1],
+            near(selection$mae, completed$mae[1]), selection$inputs$iterations == 300)
+}
+# Keep four datasets separate: overall calibration, age calibration, unrestricted baseline, and policy.
+run_dirs <- c(
+  overall = file.path(results_dir, "overall", sprintf("run-%03d", overall_selection$trial)),
+  age = file.path(results_dir, "age", sprintf("run-%03d", age_selection$trial)),
+  baseline = file.path(results_dir, "comparison", "baseline"),
+  policy = file.path(results_dir, "comparison", "policy")
+)
+# 2. Build a file inventory. Requiring exactly one match avoids accidentally mixing two run outputs.
+inputs <- tibble(dataset = character(), kind = character(), path = character())
+for (dataset in names(run_dirs)) {
+  for (kind in c("persons", "trips", "config")) {
+    suffix <- if (kind == "config") "xml" else "csv.gz"
+    matches <- list.files(run_dirs[[dataset]], full.names = TRUE,
+                          pattern = paste0("\\.output_", kind, "\\.", gsub(".", "\\.", suffix, fixed = TRUE), "$"))
+    if (length(matches) != 1) stop("Expected one ", kind, " output in ", run_dirs[[dataset]], "; found ", length(matches))
+    inputs <- add_row(inputs, dataset = dataset, kind = kind, path = matches)
+  }
+}
+# Trips describe whole journeys; legs are also needed to detect driving within a multimode journey.
+policy_legs_file <- list.files(run_dirs[["policy"]], pattern = "\\.output_legs\\.csv\\.gz$", full.names = TRUE)
+if (length(policy_legs_file) != 1) stop("Expected one policy legs output in ", run_dirs[["policy"]])
+# The road-count comparison is produced by SimWrapper post-processing, not by this R script.
+counts_file <- file.path(run_dirs[["baseline"]], "analysis", "traffic-car", "count_comparison_by_hour.csv")
+# Survey files and geographic boundaries are fixed references, shared across experiments.
+survey_persons_file <- file.path(shared_root, "data/processed/travel_survey/person_attributes.csv")
+survey_activities_file <- file.path(shared_root, "data/processed/travel_survey/activities.csv")
+target_file <- file.path(project_root, "resources/mode_share_per_group_dist_ref.csv")
+distance_target_file <- file.path(project_root, "resources/mode_share_per_dist_ref.csv")
+gunma_file <- file.path(shared_root, "data/raw/01_shapefiles/gunma_2450/gunma_2450.shp")
+japan_file <- file.path(shared_root, "data/raw/01_shapefiles/zzz_deprecated/jp_administrative_boundaries/gadm41_JPN_1.shp")
+age_config_file <- file.path(results_dir, "age", sprintf("trial-%03d.xml", age_selection$trial))
+overall_config_file <- file.path(results_dir, "overall", sprintf("trial-%03d.xml", overall_selection$trial))
+# Stop early if an input is missing, including the companion files needed to read each shapefile.
+required <- c(map_population_file, map_extractor, inputs$path, policy_legs_file, counts_file, survey_persons_file, survey_activities_file,
+              target_file, distance_target_file, age_config_file, overall_config_file,
+              sub("\\.shp$", ".shx", c(gunma_file, japan_file)),
+              sub("\\.shp$", ".dbf", c(gunma_file, japan_file)),
+              sub("\\.shp$", ".prj", c(gunma_file, japan_file)), gunma_file, japan_file)
+missing <- required[!file.exists(required)]
+if (length(missing)) stop("Missing required inputs; no paper figures have been replaced:\n", paste(missing, collapse = "\n"))
+
+# 3. Define a common set of modes, age groups, and colours so every figure is comparable.
+modes <- c("car", "ride", "bike", "walk")
+age_groups <- c("0-17", "18-29", "30-44", "45-64", "65-74", "75-84", "85+")
+age_breaks <- c(0, 18, 30, 45, 65, 75, 85, Inf)
+mode_cols <- c(car = "#0072B2", ride = "#009E73", walk = "#E69F00", bike = "#D55E00")
+# Explicit boundaries: 17/18, 29/30, 44/45, 64/65, 74/75, and 84/85.
+stopifnot(identical(as.character(cut(c(0,17,18,29,30,44,45,64,65,74,75,84,85,100),
+  age_breaks, right = FALSE, labels = age_groups)), rep(age_groups, each = 2)))
+
+# 4. Read each dataset into named lists: e.g. persons$baseline and trips$policy.
+# Exclude inbound commuters only from resident behaviour analyses, not from the map or road counts.
+persons <- list(); trips <- list(); configs <- list()
+for (dataset in names(run_dirs)) {
+  persons[[dataset]] <- read_delim(inputs$path[inputs$dataset == dataset & inputs$kind == "persons"],
+    delim = ";", show_col_types = FALSE) |> filter(!str_starts(person, "commuter"))
+  stopifnot(!anyDuplicated(persons[[dataset]]$person),
+            !anyNA(persons[[dataset]][c("age", "sex", "home_x", "home_y")]),
+            all(persons[[dataset]]$sex %in% c("m", "f")))
+  # right = FALSE makes the boundaries inclusive at the lower age: age 75 belongs to 75-84.
+  persons[[dataset]] <- persons[[dataset]] |>
+    mutate(age_group = cut(age, age_breaks, right = FALSE, labels = age_groups),
+           sex = factor(sex, c("m", "f"), c("Male", "Female")))
+  stopifnot(!anyNA(persons[[dataset]]$age_group))
+  trips[[dataset]] <- read_delim(inputs$path[inputs$dataset == dataset & inputs$kind == "trips"],
+    delim = ";", show_col_types = FALSE) |> filter(!str_starts(person, "commuter"))
+  stopifnot(!anyDuplicated(trips[[dataset]][c("person", "trip_number")]),
+            all(trips[[dataset]]$person %in% persons[[dataset]]$person),
+            all(trips[[dataset]]$main_mode %in% modes))
+  configs[[dataset]] <- read_xml(inputs$path[inputs$dataset == dataset & inputs$kind == "config"], options = "NONET")
+}
+# Demographic and home attributes must match for a paired policy comparison.
+base_population <- persons$baseline |> select(person, age, sex, home_x, home_y) |> arrange(person)
+policy_population <- persons$policy |> select(person, age, sex, home_x, home_y) |> arrange(person)
+stopifnot(identical(base_population, policy_population))
+# A score comparison is only meaningful here if both cases use exactly the same scoring parameters.
+for (module in c("scoring", "advancedScoring")) {
+  base_scoring <- xml_find_first(configs$baseline, paste0("/config/module[@name='", module, "']"))
+  policy_scoring <- xml_find_first(configs$policy, paste0("/config/module[@name='", module, "']"))
+  stopifnot(!inherits(base_scoring, "xml_missing"), !inherits(policy_scoring, "xml_missing"),
+            identical(as.character(base_scoring), as.character(policy_scoring)))
+}
+# The fresh baseline must retain the selected age-calibration scoring parameters.
+for (module in c("scoring", "advancedScoring")) {
+  stopifnot(identical(as.character(xml_find_first(configs$age, paste0("/config/module[@name='", module, "']"))),
+                      as.character(xml_find_first(configs$baseline, paste0("/config/module[@name='", module, "']")))))
+}
+# Check matched case settings and completion from effective configs and final mode statistics.
+run_settings <- tibble()
+for (dataset in names(run_dirs)) {
+  settings <- xml_find_all(configs[[dataset]], "/config/module/param[@name='lastIteration' or @name='randomSeed' or @name='flowCapacityFactor' or @name='storageCapacityFactor']")
+  run_settings <- bind_rows(run_settings, tibble(dataset, module = xml_find_chr(settings, "string(../@name)"),
+    parameter = xml_attr(settings, "name"), value = xml_attr(settings, "value")))
+  stats_file <- list.files(run_dirs[[dataset]], pattern = "\\.modestats\\.csv$", full.names = TRUE)
+  stopifnot(length(stats_file) == 1)
+  stats <- read_delim(stats_file, show_col_types = FALSE)
+  last_iteration <- as.numeric(run_settings$value[run_settings$dataset == dataset & run_settings$parameter == "lastIteration"])
+  stopifnot(length(last_iteration) == 1, last_iteration == 300, max(stats$iteration) == last_iteration)
+}
+stopifnot(identical(run_settings |> filter(dataset == "baseline") |> select(-dataset),
+                    run_settings |> filter(dataset == "policy") |> select(-dataset)))
+# 5. Check the policy itself: residents aged 75+ must have no driving trips or car legs.
+policy_legs <- read_delim(policy_legs_file, delim = ";", show_col_types = FALSE)
+restricted <- persons$policy |> filter(age >= 75) |> select(person)
+driving_check <- tibble(
+  check = c("Restricted residents", "Restricted residents' driving trips", "Restricted residents' driving legs"),
+  n = c(nrow(restricted),
+        sum(trips$policy$person %in% restricted$person &
+          (trips$policy$main_mode == "car" | str_detect(trips$policy$modes, "(^|-)car(-|$)"))),
+        sum(policy_legs$person %in% restricted$person & policy_legs$mode == "car"))
+)
+if (any(driving_check$n[-1] > 0)) stop("Policy integrity failure: restricted residents still drive. Trips: ",
+  driving_check$n[2], "; legs: ", driving_check$n[3])
+
+# 6. Reconstruct the survey comparison independently of the simulated results.
+# Preserve IDs as text; keep non-travellers in the persons table, even though they have no trips.
+survey_persons <- read_csv(survey_persons_file, col_types = cols(idx = col_character()), show_col_types = FALSE) |>
+  transmute(person = idx, age, sex = factor(gender, c("m", "f"), c("Male", "Female")),
+            age_group = cut(age, age_breaks, right = FALSE, labels = age_groups))
+# Each activity after the initial home activity has an incoming trip. Keep the four modelled modes.
+survey_trips <- read_csv(survey_activities_file, col_types = cols(p_id = col_character()), show_col_types = FALSE) |>
+  filter(act_num > 0, leg_mode %in% modes, leg_dist >= 0) |>
+  transmute(person = p_id, main_mode = leg_mode, traveled_distance = leg_dist)
+stopifnot(!anyDuplicated(survey_persons$person), !anyNA(survey_persons[c("age_group", "sex")]),
+          all(survey_trips$person %in% survey_persons$person))
+# Use the original survey target for distance comparison, preserving its distance definition.
+distance_target <- read_csv(distance_target_file, show_col_types = FALSE)
+# Sum the distance-specific target contributions to obtain a modal share for each age group.
+# Renormalising makes the four shares add to one within each age group.
+age_target <- read_csv(target_file, show_col_types = FALSE) |> filter(age != "", !is.na(age)) |>
+  mutate(age_group = str_replace_all(age, " ", "")) |>
+  group_by(age_group, main_mode) |> summarise(share = sum(share), .groups = "drop") |>
+  group_by(age_group) |> mutate(share = share / sum(share)) |> ungroup()
+stopifnot(setequal(age_target$age_group, age_groups), setequal(age_target$main_mode, modes))
+
+# Selected overall constants and age adjustments are read from the actual trial XMLs.
+age_xml <- read_xml(age_config_file, options = "NONET")
+overall_xml <- read_xml(overall_config_file, options = "NONET")
+# The scoring module holds overall mode constants; select the default resident scoring group.
+asc_modes <- xml_find_all(age_xml, "/config/module[@name='scoring']/parameterset[@type='scoringParameters'][not(param[@name='subpopulation']) or param[@name='subpopulation']/@value='null']/parameterset[@type='modeParams']")
+overall_asc <- tibble(mode = xml_attr(xml_find_first(asc_modes, "param[@name='mode']"), "value"),
+  overall = as.numeric(xml_attr(xml_find_first(asc_modes, "param[@name='constant']"), "value"))) |> filter(mode %in% modes)
+# The age calibration should retain the overall constants selected in the first stage.
+selected_modes <- xml_find_all(overall_xml, "/config/module[@name='scoring']/parameterset[@type='scoringParameters'][not(param[@name='subpopulation']) or param[@name='subpopulation']/@value='null']/parameterset[@type='modeParams']")
+selected_overall <- tibble(mode = xml_attr(xml_find_first(selected_modes, "param[@name='mode']"), "value"),
+  overall = as.numeric(xml_attr(xml_find_first(selected_modes, "param[@name='constant']"), "value"))) |> filter(mode %in% modes)
+stopifnot(isTRUE(all.equal(arrange(overall_asc, mode), arrange(selected_overall, mode))))
+# The advancedScoring module holds deltaConstant: an additive correction for each age and mode.
+age_adjustments <- tibble()
+for (group in xml_find_all(age_xml, "/config/module[@name='advancedScoring']/parameterset[@type='scoringParameters']")) {
+  age <- xml_attr(xml_find_first(group, "param[@name='age_group']"), "value")
+  nodes <- xml_find_all(group, "parameterset[@type='modeParams']")
+  age_adjustments <- bind_rows(age_adjustments, tibble(age_group = age,
+    mode = xml_attr(xml_find_first(nodes, "param[@name='mode']"), "value"),
+    adjustment = as.numeric(xml_attr(xml_find_first(nodes, "param[@name='deltaConstant']"), "value"))))
+}
+# Effective ASC = overall ASC + age adjustment. Seven age groups x four modes gives 28 values.
+asc_values <- age_adjustments |> left_join(overall_asc, by = "mode") |>
+  mutate(effective = overall + adjustment, age_group = factor(age_group, age_groups)) |>
+  arrange(age_group, match(mode, modes))
+stopifnot(nrow(asc_values) == 28, !anyDuplicated(asc_values[c("age_group", "mode")]),
+          setequal(asc_values$mode, modes), !anyNA(asc_values),
+          all(is.finite(asc_values$effective)), all(asc_values$adjustment[asc_values$mode == "walk"] == 0),
+          overall_asc$overall[overall_asc$mode == "walk"] == 0,
+          all(abs(asc_values$effective - asc_values$overall - asc_values$adjustment) < 1e-12))
+# The selected age output must use the exported calibration parameters.
+base_mode_nodes <- xml_find_all(configs$age, "/config/module[@name='scoring']/parameterset[@type='scoringParameters'][not(param[@name='subpopulation']) or param[@name='subpopulation']/@value='null']/parameterset[@type='modeParams']")
+base_mode_values <- tibble(mode = xml_attr(xml_find_first(base_mode_nodes, "param[@name='mode']"), "value"),
+  overall = as.numeric(xml_attr(xml_find_first(base_mode_nodes, "param[@name='constant']"), "value"))) |> filter(mode %in% modes)
+base_adjustments <- tibble()
+for (group in xml_find_all(configs$age, "/config/module[@name='advancedScoring']/parameterset[@type='scoringParameters']")) {
+  nodes <- xml_find_all(group, "parameterset[@type='modeParams']")
+  base_adjustments <- bind_rows(base_adjustments, tibble(
+    age_group = xml_attr(xml_find_first(group, "param[@name='age_group']"), "value"),
+    mode = xml_attr(xml_find_first(nodes, "param[@name='mode']"), "value"),
+    adjustment = as.numeric(xml_attr(xml_find_first(nodes, "param[@name='deltaConstant']"), "value"))))
+}
+stopifnot(isTRUE(all.equal(arrange(base_mode_values, mode), arrange(overall_asc, mode))),
+          isTRUE(all.equal(arrange(base_adjustments, age_group, mode), arrange(age_adjustments, age_group, mode))))
+
+# Prepare plot data once; no objects from another notebook are needed.
+# 7. Calculate reusable summaries for all figures. Here p means persons and t means trips.
+shares <- tibble(); trip_rates <- tibble()
+for (dataset in c("Survey", "overall", "age", "baseline", "policy")) {
+  p <- if (dataset == "Survey") survey_persons else persons[[dataset]]
+  t <- if (dataset == "Survey") survey_trips else trips[[dataset]]
+  # Start from all persons and attach their trip counts; absent counts become zero.
+  # This keeps the trips-per-resident denominator from excluding people who stayed at home.
+  rates <- p |> select(person, age_group, sex) |> left_join(count(t, person, name = "n_trips"), by = "person") |>
+    mutate(n_trips = replace_na(n_trips, 0L))
+  stopifnot(nrow(rates) == nrow(p), sum(rates$n_trips) == nrow(t))
+  trip_rates <- bind_rows(trip_rates, rates |> group_by(age_group, sex) |>
+    summarise(trips_per_resident = mean(n_trips), residents = n(), .groups = "drop") |> mutate(dataset = dataset))
+  # Attach age and sex to each trip, count modes, and fill unused modes with zero.
+  # Modal shares use trips as the denominator; they are not shares of people.
+  shares <- bind_rows(shares, t |> left_join(select(p, person, age_group, sex), by = "person") |>
+    count(age_group, sex, main_mode) |>
+    complete(age_group, sex, main_mode = modes, fill = list(n = 0)) |>
+    group_by(age_group, sex) |> mutate(share = n / sum(n)) |> ungroup() |> mutate(dataset = dataset))
+}
+shares <- shares |> mutate(main_mode = factor(main_mode, c("car", "ride", "walk", "bike")))
+stopifnot(all(shares |> group_by(dataset, age_group, sex) |> summarise(total = sum(share), .groups = "drop") |> pull(total) |> near(1)))
+# 8. Pair the same person and trip number across cases to identify actual mode transitions.
+# Unmatched trips are counted separately below rather than silently treated as mode switches.
+matched_trips <- inner_join(trips$baseline |> select(person, trip_number, mode_base = main_mode),
+  trips$policy |> select(person, trip_number, mode_policy = main_mode), by = c("person", "trip_number")) |>
+  left_join(select(persons$baseline, person, age_group, age, sex), by = "person")
+matching <- tibble(check = c("Unmatched baseline trips", "Unmatched policy trips", "Matched trips", "Matched residents"),
+  n = c(nrow(anti_join(trips$baseline, trips$policy, by = c("person", "trip_number"))),
+        nrow(anti_join(trips$policy, trips$baseline, by = c("person", "trip_number"))),
+        nrow(matched_trips), nrow(base_population)))
+if (any(matching$n[1:2] > 0)) warning("Unmatched trips: Figure 8 uses matched trips only; see the matching table.")
+# Pair scores by person, then calculate policy minus baseline. Negative values indicate a lower score.
+score_pairs <- persons$baseline |> select(person, age_group, sex, score_base = executed_score) |>
+  left_join(persons$policy |> select(person, score_policy = executed_score), by = "person") |>
+  mutate(score_change = score_policy - score_base)
+stopifnot(all(is.finite(score_pairs$score_change)))
+# Road-count input includes all simulated traffic. SimWrapper has already expanded the 1% sample.
+# Sum hourly volumes for each link to obtain the daily values used in the scatter plot.
+counts <- read_csv(counts_file, show_col_types = FALSE)
+stopifnot(all(c("link_id", "observed_traffic_volume", "simulated_traffic_volume") %in% names(counts)),
+          all(is.finite(counts$observed_traffic_volume)), all(is.finite(counts$simulated_traffic_volume)),
+          all(counts$observed_traffic_volume >= 0), all(counts$simulated_traffic_volume >= 0))
+daily_counts <- counts |> group_by(link_id) |>
+  summarise(observed = sum(observed_traffic_volume), simulated = sum(simulated_traffic_volume), .groups = "drop")
+
+# Calculate both MAEs from the same resident trips used in the calibration figures.
+model_age_fit <- shares |> filter(dataset %in% c("overall", "age", "baseline")) |>
+  group_by(dataset, age_group, main_mode) |> summarise(n = sum(n), .groups = "drop") |>
+  group_by(dataset, age_group) |> mutate(share = n / sum(n)) |> ungroup() |>
+  left_join(age_target |> rename(reference_share = share), by = c("age_group", "main_mode")) |>
+  group_by(dataset) |> summarise(age_mae_pp = 100 * mean(abs(share - reference_share)), .groups = "drop")
+stopifnot(near(age_selection$mae, model_age_fit$age_mae_pp[model_age_fit$dataset == "age"] / 100))
+aggregate_shares <- shares |> filter(dataset %in% c("Survey", "overall", "age", "baseline")) |>
+  group_by(dataset, main_mode) |> summarise(n = sum(n), .groups = "drop") |>
+  group_by(dataset) |> mutate(share = n / sum(n)) |> ungroup()
+aggregate_fit <- aggregate_shares |> filter(dataset != "Survey") |>
+  left_join(aggregate_shares |> filter(dataset == "Survey") |>
+    select(main_mode, reference_share = share), by = "main_mode") |>
+  group_by(dataset) |> summarise(aggregate_mae_pp = 100 * mean(abs(share - reference_share)), .groups = "drop")
+fit_summary <- left_join(model_age_fit, aggregate_fit, by = "dataset")
+stopifnot(!anyNA(fit_summary), all(is.finite(fit_summary$age_mae_pp)))
+
+# All inputs and numerical checks above pass before creating exports.
+dir.create(figure_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(table_dir, recursive = TRUE, showWarnings = FALSE)
+# Show the run choices, fit errors, input paths, and checks in the HTML report.
+# Multiply share errors by 100 to express them in percentage points (0.01 becomes 1 pp).
+knitr::kable(tibble(experiment, overall_trial = overall_selection$trial, age_trial = age_selection$trial,
+                    overall_MAE_pp = 100 * overall_selection$mae, age_MAE_pp = 100 * age_selection$mae), digits = 3)
+knitr::kable(inputs)
+knitr::kable(fit_summary, digits = 3)
+write_csv(fit_summary, file.path(table_dir, "calibration-fit-summary.csv"))
+write_csv(aggregate_shares, file.path(table_dir, "calibration-aggregate-shares.csv"))
+write_csv(tibble(dataset = names(run_dirs), path = unname(run_dirs)), file.path(table_dir, "selected-runs.csv"))
+knitr::kable(tibble(reference = c("Survey persons", "Survey activities", "Age targets", "Distance targets", "Traffic counts", "Gunma boundaries", "Japan boundaries"),
+                   path = c(survey_persons_file, survey_activities_file, target_file, distance_target_file, counts_file, gunma_file, japan_file)))
+knitr::kable(run_settings)
+knitr::kable(driving_check)
+knitr::kable(matching)
+# Keep machine-readable versions of the checks alongside the paper tables.
+write_csv(inputs, file.path(table_dir, "simulation-inputs.csv"))
+write_csv(matching, file.path(table_dir, "matching.csv"))
+write_csv(driving_check, file.path(table_dir, "driving-check.csv"))
+```
+
+## Figure 1 — Study area and 100% synthetic population
+
+The map shows home locations for the **100% synthetic population**, including inbound commuters, from the population-generation input. It is not a 100% simulation result. All behavioural figures still use the selected 1% experiment. The main view focuses on Gunma Prefecture and its immediate surroundings; a small inset locates Gunma among Japan's main islands.
+
+```{r}
+# Read the map boundaries. EPSG:2450 uses metres; EPSG:4326 uses longitude and latitude.
+gunma <- st_read(gunma_file, quiet = TRUE) |> st_transform(2450)
+japan <- st_read(japan_file, quiet = TRUE) |> st_transform(4326)
+# Extract only home coordinates, streaming the full XML; reuse the cache while its source is unchanged.
+if (!file.exists(map_coordinates_file) ||
+    file.mtime(map_coordinates_file) < max(file.mtime(map_population_file), file.mtime(map_extractor))) {
+  status <- system2("python3", c(shQuote(map_extractor), "--input", shQuote(map_population_file),
+                                "--output", shQuote(map_coordinates_file)))
+  if (status != 0) stop("Could not extract the full map population from ", map_population_file)
+}
+# The compact cache contains one row per person in the full population, including commuters.
+map_persons <- read_csv(map_coordinates_file, col_types = cols(person = col_character()), show_col_types = FALSE) |>
+  mutate(population = if_else(str_starts(person, "commuter"), "Inbound commuters", "Gunma residents"))
+stopifnot(!anyNA(map_persons[c("person", "home_x", "home_y")]), !anyDuplicated(map_persons$person),
+          all(is.finite(map_persons$home_x)), all(is.finite(map_persons$home_y)),
+          all(c("Gunma residents", "Inbound commuters") %in% map_persons$population))
+knitr::kable(count(map_persons, population, name = "persons"))
+cat("Map population source:", map_population_file)
+# Coordinates already use EPSG:2450; geom_point avoids millions of separate sf geometries.
+homes <- map_persons |> select(home_x, home_y, population)
+# Crop to Gunma and a small surrounding buffer; distant commuter homes remain in the input.
+main_xlim <- c(st_bbox(gunma)[["xmin"]] - 8000, st_bbox(gunma)[["xmax"]] + 8000)
+main_ylim <- c(st_bbox(gunma)[["ymin"]] - 6000, st_bbox(gunma)[["ymax"]] + 6000)
+# Draw residents first, then commuters and the prefecture outline.
+# Small, transparent dots limit overplotting; commuters use a larger dot so they remain visible.
+map_main <- ggplot() + geom_sf(data = japan |> st_transform(2450), fill = "grey97", colour = "grey80", linewidth = 0.2) +
+  geom_point(data = filter(homes, population == "Gunma residents"), aes(home_x, home_y, colour = population),
+             size = 0.06, alpha = 0.16, stroke = 0) +
+  geom_point(data = filter(homes, population == "Inbound commuters"), aes(home_x, home_y, colour = population),
+             size = 0.11, alpha = 0.35, stroke = 0) +
+  geom_sf(data = gunma, fill = NA, colour = "#0072B2", linewidth = 0.6) +
+  scale_colour_manual(values = c("Gunma residents" = "#333333", "Inbound commuters" = "#D55E00")) +
+  coord_sf(xlim = main_xlim, ylim = main_ylim, datum = NA) +
+  theme_void(base_size = 20) + labs(colour = NULL) +
+  theme(legend.position = "bottom", plot.margin = margin(0, 0, 0, 0)) + guides(colour = guide_legend(override.aes = list(size = 2, alpha = 1)))
+# The inset shows the main Japanese islands; exclude the distant southern and offshore islands.
+# Place labels on the main map, leaving the inset as a simple locator.
+map_inset <- ggplot() + geom_sf(data = japan, fill = "grey94", colour = "grey65", linewidth = 0.15) +
+  geom_sf(data = gunma |> st_transform(4326), fill = "#0072B2", colour = "#0072B2", linewidth = 0.2) +
+  coord_sf(xlim = c(129, 146), ylim = c(31, 46), datum = NA) + theme_void() +
+  theme(plot.background = element_rect(fill = "white", colour = "grey80", linewidth = 0.3),
+        plot.margin = margin(0, 0, 0, 0))
+# Keep the enlarged locator inside the main map panel, including when the paper crops its margins.
+figure_1 <- map_main +
+  inset_element(map_inset, left = 0.01, bottom = 0.57, right = 0.33, top = 0.99, align_to = "panel")
+figure_1
+# Save the named plot at publication resolution; width and height are in inches.
+ggsave(file.path(figure_dir, "map_gunma_population.png"), figure_1, width = 6.8, height = 5.5, dpi = 300, bg = "white")
+write_csv(count(map_persons, population, name = "persons"), file.path(table_dir, "map-population-counts.csv"))
+```
+
+## Figure 2 — Model V1, Model V2, and Reference by age
+
+Reference is the pooled age-specific survey target; Model V1 is the selected overall-only calibration; Model V2 is the selected age-calibration run. Iteration settings for each run are reported above. This compares fit to calibration targets, not independent validation. Sexes are pooled using trip counts.
+
+```{r}
+# Pool male and female trip counts before calculating shares; do not average their percentages.
+# V1 is the selected overall-only run; V2 is the selected age-calibration run.
+calibration_shares <- shares |> filter(dataset %in% c("overall", "age")) |>
+  group_by(dataset, age_group, main_mode) |> summarise(n = sum(n), .groups = "drop") |>
+  group_by(dataset, age_group) |> mutate(share = n / sum(n)) |> ungroup() |>
+  mutate(dataset = recode(dataset, overall = "Model V1", age = "Model V2")) |>
+  bind_rows(age_target |> mutate(dataset = "Reference")) |>
+  mutate(age_group = factor(age_group, age_groups),
+         main_mode = factor(main_mode, c("car", "ride", "walk", "bike")),
+         dataset = factor(dataset, c("Model V1", "Model V2", "Reference")))
+stopifnot(all(calibration_shares |> group_by(age_group, dataset) |>
+  summarise(total = sum(share), .groups = "drop") |> pull(total) |> near(1)))
+# Each age panel contains three stacked bars, ordered V1, V2, then Reference.
+# The separate text layer adds one label per bar rather than one label per coloured segment.
+# Fix stacking order explicitly, including when replotting from the exported CSV.
+figure_2 <- ggplot(calibration_shares |>
+  mutate(main_mode = factor(main_mode, levels = c("car", "ride", "walk", "bike"))),
+  aes(dataset, share, fill = main_mode)) +
+  geom_col(width = 0.85, position = position_stack(reverse = TRUE)) +
+  facet_grid(. ~ age_group, switch = "x") +
+  geom_text(data = distinct(calibration_shares, age_group, dataset), inherit.aes = FALSE,
+    aes(x = dataset, y = 0.02, label = dataset),
+    colour = "white", angle = 90, hjust = 0, size = 7) +
+  scale_fill_manual(values = mode_cols, breaks = c("car", "ride", "walk", "bike"), guide = guide_legend(reverse = FALSE)) +
+  scale_y_continuous(labels = scales::label_percent()) + coord_cartesian(ylim = c(0, 1)) +
+  theme_minimal(base_size = 24) + labs(x = "Age group", y = "Modal split (trip-based)", fill = "Mode") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+        strip.background = element_blank(), strip.placement = "outside", legend.position = "bottom")
+figure_2
+ggsave(file.path(figure_dir, "calibration_age_comparison.png"), figure_2, width = 12, height = 6, dpi = 300, bg = "white")
+write_csv(calibration_shares, file.path(table_dir, "calibration-age-comparison.csv"))
+# Paper fit comparison: equal weight for each of the seven age groups and four modes.
+# Use the same selected age trial as the plotted V2.
+calibration_errors <- calibration_shares |>
+  filter(dataset != "Reference") |>
+  left_join(calibration_shares |> filter(dataset == "Reference") |>
+              select(age_group, main_mode, reference_share = share),
+            by = c("age_group", "main_mode")) |>
+  mutate(absolute_error_pp = 100 * abs(share - reference_share))
+stopifnot(nrow(calibration_errors) == 56,
+          !anyNA(calibration_errors$absolute_error_pp))
+calibration_fit <- calibration_errors |>
+  group_by(dataset) |>
+  summarise(mae_percentage_points = mean(absolute_error_pp), .groups = "drop")
+calibration_fit
+write_csv(calibration_fit, file.path(table_dir, "calibration-age-fit.csv"))
+```
+
+## Figure 3 — Observed and simulated daily traffic counts
+
+Counts include all simulated traffic, including inbound commuters. Values are used as supplied by the simulation analysis output; no second sample expansion is applied.
+
+```{r}
+# Each point is one matched counting link. The diagonal is perfect agreement; dashed bands show errors.
+figure_3 <- ggplot(daily_counts, aes(observed, simulated)) + geom_point(alpha = 0.55, size = 1.6) +
+  geom_abline(aes(slope = 1, intercept = 0, linetype = "Perfect fit")) +
+  geom_abline(aes(slope = 1.2, intercept = 0, linetype = "±20% error")) +
+  geom_abline(aes(slope = 0.8, intercept = 0, linetype = "±20% error")) +
+  geom_abline(aes(slope = 1.4, intercept = 0, linetype = "±40% error")) +
+  geom_abline(aes(slope = 0.6, intercept = 0, linetype = "±40% error")) +
+  scale_linetype_manual(values = c("Perfect fit" = "solid", "±20% error" = "dashed", "±40% error" = "dotted")) +
+  coord_equal() + theme_minimal(base_size = 20) +
+  scale_x_continuous(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
+  scale_y_continuous(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
+  labs(x = "Observed vehicles/day", y = "Simulated vehicles/day", linetype = NULL) +
+  theme(legend.position = "bottom", legend.text = element_text(size = 16))
+figure_3
+ggsave(file.path(figure_dir, "road_counts3.png"), figure_3, width = 8, height = 5.5, dpi = 300, bg = "white")
+write_csv(daily_counts, file.path(table_dir, "daily-traffic-counts.csv"))
+```
+
+### Traffic-count statistics for the manuscript
+
+These statistics use one daily total per matched directional link, with equal weight per link. Relative error is `(simulated - observed) / observed`. Links with zero observed daily volume are reported separately and excluded from relative-error and SQV summaries.
+
+```{r}
+# Calculate errors from daily totals, not from an average of hourly percentage errors.
+# SQV uses MATSim's daily car-count scale of 10,000; the hourly scale of 1,000 is not appropriate here.
+count_validation_daily <- daily_counts |>
+  mutate(relative_error = if_else(observed > 0, (simulated - observed) / observed, NA_real_),
+         daily_sqv = if_else(observed > 0,
+           1 / (1 + sqrt((simulated - observed)^2 / (10000 * observed))), NA_real_))
+valid_count_links <- count_validation_daily |> filter(observed > 0)
+if (!nrow(valid_count_links)) stop("No links with positive observed daily traffic are available for validation.")
+
+# Include exactly +/-20% and +/-40% in the respective bands.
+# A tiny tolerance avoids classifying a boundary differently because of floating-point rounding.
+count_validation <- valid_count_links |> summarise(
+  compared_links = n(),
+  within_20_percent = 100 * mean(abs(relative_error) <= 0.20 + 1e-12),
+  within_40_percent = 100 * mean(abs(relative_error) <= 0.40 + 1e-12),
+  below_minus_20_percent = 100 * mean(relative_error < -0.20 - 1e-12),
+  above_plus_20_percent = 100 * mean(relative_error > 0.20 + 1e-12),
+  mean_absolute_relative_error_percent = 100 * mean(abs(relative_error)),
+  mean_daily_sqv = mean(daily_sqv)
+) |> mutate(excluded_zero_observed_links = sum(count_validation_daily$observed == 0))
+stopifnot(near(count_validation$within_20_percent + count_validation$below_minus_20_percent +
+                count_validation$above_plus_20_percent, 100),
+          count_validation$within_40_percent >= count_validation$within_20_percent,
+          all(between(valid_count_links$daily_sqv, 0, 1)))
+
+# Present both the denominator and all six statistics quoted in the paper.
+count_validation_table <- tibble(
+  Statistic = c("Compared directional links", "Excluded links with zero observed volume",
+                "Within +/-20%", "Within +/-40%", "Relative error below -20%", "Relative error above +20%",
+                "Mean absolute relative error", "Mean daily link-level SQV"),
+  Value = c(count_validation$compared_links, count_validation$excluded_zero_observed_links,
+            count_validation$within_20_percent, count_validation$within_40_percent,
+            count_validation$below_minus_20_percent, count_validation$above_plus_20_percent,
+            count_validation$mean_absolute_relative_error_percent, count_validation$mean_daily_sqv),
+  Unit = c("links", "links", rep("%", 5), "0-1")
+)
+knitr::kable(count_validation_table, digits = 2)
+# Preserve full precision and per-link values so the rounded manuscript numbers can be checked.
+write_csv(count_validation, file.path(table_dir, "traffic-count-validation-summary.csv"))
+write_csv(count_validation_daily, file.path(table_dir, "traffic-count-validation-by-link.csv"))
+```
+
+Daily SQV is calculated as $1/(1+\sqrt{(S-O)^2/(10{,}000\,O)})$, where $S$ and $O$ are daily simulated and observed volumes. The reported value is the arithmetic mean across links, consistent with MATSim's `CountComparisonAnalysis`; it is not an average of the hourly SQV column. The 0.75 and 0.80 thresholds discussed in the manuscript are context for interpretation, not automatic acceptance criteria here.
+
+Copyable LaTeX with the **current experiment's** values (rather than the previous manuscript's numbers):
+
+```{r}
+#| results: asis
+# Use whole percentages for the bands, one decimal for MARE, and two decimals for SQV.
+# The percentages below are based on positive-observation links; excluded zeros are shown above.
+count_validation_text <- sprintf(paste0(
+  "We compared simulated daily link volumes against real-world traffic counts obtained from JARTIC ",
+  "\\citep{zotero-item-3922} and MLIT \\citep{mlit_2023}, using %d matched directional links. ",
+  "For %.0f\\%% of links, simulated volumes were within $\\pm$20\\%% of observed volumes; ",
+  "for %.0f\\%%, they were within $\\pm$40\\%%. ",
+  "Relative errors were below $-$0.20 for %.0f\\%% of links and above 0.20 for %.0f\\%%. ",
+  "The mean absolute relative error was %.1f\\%%.\n\n",
+  "The mean daily link-level Scalable Quality Value (SQV) was %.2f."),
+  count_validation$compared_links, count_validation$within_20_percent, count_validation$within_40_percent,
+  count_validation$below_minus_20_percent, count_validation$above_plus_20_percent,
+  count_validation$mean_absolute_relative_error_percent, count_validation$mean_daily_sqv)
+cat("\n```latex\n", count_validation_text, "\n```\n", sep = "")
+writeLines(count_validation_text, file.path(table_dir, "traffic-count-validation-text.tex"))
+```
+
+## Figure 4 — Modal shares by distance: Model V2 and Reference
+
+```{r}
+# Distance values are in metres; the displayed group labels are in kilometres.
+distance_breaks <- c(0, 1000, 2000, 5000, 10000, 20000, Inf)
+distance_labels <- c("<1", "1–2", "2–5", "5–10", "10–20", "20+")
+# Within each distance band, divide each mode count by the total number of trips in that band.
+base_distance <- trips$age |> mutate(distance_group = cut(traveled_distance, distance_breaks,
+  right = FALSE, labels = distance_labels)) |> count(distance_group, main_mode) |>
+  complete(distance_group, main_mode = modes, fill = list(n = 0)) |> group_by(distance_group) |>
+  mutate(share = n / sum(n)) |> ungroup() |> mutate(dataset = "Model V2")
+# Give survey and model distance bands the same labels and ordering before combining them.
+ref_distance <- distance_target |> mutate(distance_group = factor(dist_group,
+  levels = c("0 - 1000", "1000 - 2000", "2000 - 5000", "5000 - 10000", "10000 - 20000", "20000+"), labels = distance_labels), dataset = "Reference")
+distance_shares <- bind_rows(ref_distance, base_distance) |>
+  mutate(dataset = factor(dataset, c("Model V2", "Reference")), main_mode = factor(main_mode, c("car", "ride", "walk", "bike")))
+figure_4 <- ggplot(distance_shares, aes(dataset, share, fill = main_mode)) +
+  geom_col(position = position_stack(reverse = TRUE), width = 0.85) +
+  facet_grid(. ~ distance_group, switch = "x") +
+  geom_text(data = distinct(distance_shares, distance_group, dataset), inherit.aes = FALSE,
+    aes(x = dataset, y = 0.02, label = dataset),
+    colour = "white", angle = 90, hjust = 0, size = 7) +
+  scale_fill_manual(values = mode_cols, breaks = c("car", "ride", "walk", "bike"), guide = guide_legend(reverse = FALSE)) +
+  scale_y_continuous(labels = scales::label_percent()) + theme_minimal(base_size = 24) +
+  labs(x = "Trip distance (km)", y = "Modal split (trip-based)", fill = "Mode") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), strip.background = element_blank(),
+        panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+        strip.placement = "outside", legend.position = "bottom")
+figure_4
+ggsave(file.path(figure_dir, "modal_split_dist.png"), figure_4, width = 9, height = 6, dpi = 300, bg = "white")
+write_csv(distance_shares, file.path(table_dir, "distance-shares.csv"))
+```
+
+## Figure 5 — Model V2 and Reference by age and sex
+
+Reference shares are calculated separately for men and women from the survey. Model V2 is the selected age-calibration run. Calibration pooled both sexes; remaining age–sex discrepancies are shown rather than hidden.
+
+```{r}
+# Use the true sex-specific survey shares and the age-calibrated run.
+# No gender-specific ASC calibration is implied: the plot deliberately shows remaining discrepancies.
+sex_comparison <- shares |> filter(dataset %in% c("Survey", "age")) |>
+  mutate(dataset = factor(recode(dataset, Survey = "Reference", age = "Model V2"),
+                          c("Model V2", "Reference")))
+# Rows separate men and women; columns separate ages; paired bars show V2 and Reference.
+figure_5 <- ggplot(sex_comparison, aes(dataset, share, fill = main_mode)) +
+  geom_col(width = 0.85, position = position_stack(reverse = TRUE)) +
+  facet_grid(rows = vars(sex), cols = vars(age_group), switch = "x") +
+  geom_text(data = distinct(sex_comparison, age_group, sex, dataset), inherit.aes = FALSE,
+    aes(x = dataset, y = 0.02, label = dataset), colour = "white", angle = 90, hjust = 0, size = 3.5) +
+  scale_fill_manual(values = mode_cols, breaks = c("car", "ride", "walk", "bike"), guide = guide_legend(reverse = FALSE)) +
+  scale_y_continuous(labels = scales::label_percent()) + coord_cartesian(ylim = c(0, 1)) +
+  theme_minimal(base_size = 17) + labs(x = "Age group", y = "Modal split (trip-based)", fill = "Mode") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+        strip.background = element_blank(), strip.placement = "outside", legend.position = "bottom")
+figure_5
+ggsave(file.path(figure_dir, "mode_share_ref_base.png"), figure_5, width = 12, height = 7, dpi = 300, bg = "white")
+write_csv(sex_comparison, file.path(table_dir, "mode-share-reference-v2-age-sex.csv"))
+write_csv(shares, file.path(table_dir, "mode-shares-age-sex.csv"))
+```
+
+### Combined comparison — Model V1, Model V2, and Reference by age and sex
+
+This candidate combines the overall-only and age-calibrated models with the sex-specific survey reference. Men and women occupy separate rows, with three bars per age group. Model V1 uses the selected overall-calibration run; Model V2 uses the selected age-calibration run, as in the existing figures. Neither model uses sex-specific ASC calibration.
+
+```{r}
+combined_sex_comparison <- shares |>
+  filter(dataset %in% c("overall", "age", "Survey")) |>
+  mutate(dataset = factor(recode(dataset, overall = "Model V1", age = "Model V2",
+                                 Survey = "Reference"),
+                          c("Model V1", "Model V2", "Reference")))
+# Retain sex-specific trip shares; do not reuse the pooled age-calibration targets.
+stopifnot(nrow(combined_sex_comparison) == 7 * 2 * 3 * 4,
+          !anyNA(combined_sex_comparison$share),
+          all(combined_sex_comparison |> group_by(age_group, sex, dataset) |>
+                summarise(total = sum(share), .groups = "drop") |> pull(total) |> near(1)))
+figure_5_combined <- ggplot(combined_sex_comparison, aes(dataset, share, fill = main_mode)) +
+  geom_col(width = 0.85, position = position_stack(reverse = TRUE)) +
+  facet_grid(rows = vars(sex), cols = vars(age_group), switch = "x") +
+  geom_text(data = distinct(combined_sex_comparison, age_group, sex, dataset), inherit.aes = FALSE,
+    aes(x = dataset, y = 0.02, label = dataset), colour = "white", angle = 90, hjust = 0, size = 3.2) +
+  scale_fill_manual(values = mode_cols, breaks = c("car", "ride", "walk", "bike"),
+                    guide = guide_legend(reverse = FALSE)) +
+  scale_y_continuous(labels = scales::label_percent()) + coord_cartesian(ylim = c(0, 1)) +
+  theme_minimal(base_size = 17) +
+  labs(x = "Age group", y = "Modal split (trip-based)", fill = "Mode") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+        strip.background = element_blank(), strip.placement = "outside", legend.position = "bottom")
+figure_5_combined
+ggsave(file.path(figure_dir, "mode_share_ref_v1_v2_age_sex.png"), figure_5_combined,
+       width = 12, height = 7, dpi = 300, bg = "white")
+write_csv(combined_sex_comparison, file.path(table_dir, "mode-share-reference-v1-v2-age-sex.csv"))
+```
+
+## Figure 6 — Policy effects: mode transitions and score changes
+
+Transitions among residents aged 75+ are shown beside paired policy-minus-baseline scores by age and sex. Scores are model outcomes under identical scoring parameters, not a comprehensive welfare or accessibility measure. Unmatched trips are reported in the input checks.
+
+```{r}
+# Only matched trips by residents aged 75+ enter the Sankey. Counts determine the flow widths.
+transitions <- matched_trips |> filter(age >= 75) |>
+  mutate(across(c(mode_base, mode_policy), ~ factor(.x, levels = c("car", "ride", "walk", "bike")))) |>
+  count(mode_base, mode_policy, name = "n_trips")
+policy_transitions_plot <- ggplot(transitions, aes(axis1 = mode_base, axis2 = mode_policy, y = n_trips)) +
+  geom_alluvium(aes(fill = mode_base), alpha = 0.7, width = 0.25, reverse = FALSE) +
+  geom_stratum(aes(fill = after_stat(stratum)), width = 0.25, reverse = FALSE) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), reverse = FALSE) +
+  scale_fill_manual(values = mode_cols, breaks = c("car", "ride", "walk", "bike")) +
+  scale_x_discrete(limits = c("Base", "Policy"), expand = c(0.1, 0.1)) +
+  theme_minimal(base_size = 22) + labs(x = NULL, y = "Number of trips", fill = "Mode")
+ggsave(file.path(figure_dir, "results_modal_shift.png"), policy_transitions_plot, width = 8, height = 6, dpi = 300, bg = "white")
+write_csv(transitions, file.path(table_dir, "policy-mode-transitions-75plus.csv"))
+# Export the percentages quoted in the manuscript using only baseline driver trips aged 75+.
+driver_transitions <- transitions |> filter(mode_base == "car") |>
+  mutate(percent = 100 * n_trips / sum(n_trips))
+stopifnot(near(sum(driver_transitions$percent), 100), !any(driver_transitions$mode_policy == "car"))
+write_csv(driver_transitions, file.path(table_dir, "policy-driver-transitions-75plus.csv"))
+
+
+# Average individual score changes within each age-sex group, including residents with no trips.
+score_summary <- score_pairs |> group_by(age_group, sex) |>
+  summarise(score_change = mean(score_change), residents = n(), .groups = "drop")
+policy_scores_plot <- ggplot(score_summary, aes(age_group, score_change, fill = sex)) +
+  geom_hline(yintercept = 0, colour = "grey60") + geom_col(position = "dodge") +
+  theme_minimal(base_size = 20) + labs(x = "Age group", y = "Policy − base score (utils)", fill = "Sex") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave(file.path(figure_dir, "results_score_diff.png"), policy_scores_plot, width = 8, height = 6, dpi = 300, bg = "white")
+write_csv(score_summary, file.path(table_dir, "score-changes-age-sex.csv"))
+# Combine the two policy plots for the paper; their individual PNGs are also saved above.
+figure_6 <- (policy_transitions_plot + labs(title = "(a) Mode transitions, age 75+") + theme_minimal(base_size = 15)) |
+  (policy_scores_plot + labs(title = "(b) Score changes by age and sex") + theme_minimal(base_size = 15) +
+     theme(axis.text.x = element_text(angle = 45, hjust = 1)))
+figure_6 <- figure_6 + plot_layout(widths = c(1, 1.15))
+figure_6
+ggsave(file.path(figure_dir, "policy_effects.png"), figure_6, width = 14, height = 6, dpi = 300, bg = "white")
+```
+
+## Copyable LaTeX ASC rows
+
+Paste the overall row followed by the seven **adjustment** rows into the existing seven-column scoring table. Effective constants equal the overall constant plus the age adjustment; walk remains zero. The compact check table below contains effective constants, not adjustments.
+
+```{r}
+#| results: asis
+# Rearrange the adjustment data into one row per age group and one column per mode.
+asc_wide <- asc_values |> select(age_group, mode, adjustment) |>
+  pivot_wider(names_from = mode, values_from = adjustment) |> arrange(age_group)
+overall_wide <- overall_asc |> pivot_wider(names_from = mode, values_from = overall)
+# Build rows in the existing scoring table order: description, symbol, car, ride, bike, walk, source.
+# The overall row and adjustment rows must be added together to obtain the effective age-specific ASC.
+latex_rows <- sprintf("Overall ASC (util) & $C_m$ & %.3f & %.3f & %.3f & %.3f & Calibration \\\\",
+                      overall_wide$car, overall_wide$ride, overall_wide$bike, overall_wide$walk)
+for (i in seq_len(nrow(asc_wide))) {
+  age_label <- gsub("-", "--", as.character(asc_wide$age_group[i]), fixed = TRUE)
+  latex_rows <- c(latex_rows, sprintf("Age adjustment: %s & $\\Delta C_{a,m}$ & %.3f & %.3f & %.3f & %.3f & Calibration \\\\",
+    age_label, asc_wide$car[i], asc_wide$ride[i], asc_wide$bike[i], asc_wide$walk[i]))
+}
+# Print a copyable LaTeX code block in the HTML; this does not create a full table environment.
+cat("\n```latex\n", paste(latex_rows, collapse = "\n"), "\n```\n", sep = "")
+# Produce a separate check table of effective constants; these are not the adjustment rows.
+effective_table <- asc_values |> select(age_group, mode, effective) |>
+  pivot_wider(names_from = mode, values_from = effective) |> select(age_group, all_of(modes))
+effective_display <- effective_table
+for (mode in modes) effective_display[[mode]] <- sprintf("%.3f", effective_display[[mode]])
+effective_latex <- knitr::kable(effective_display, format = "latex", align = "lrrrr", row.names = FALSE,
+                              col.names = c("Age group", "Car", "Ride", "Bike", "Walk"))
+cat("\n```latex\n", effective_latex, "\n```\n", sep = "")
+# Export paste-ready LaTeX and full-precision CSV values for later checking or reuse.
+writeLines(latex_rows, file.path(table_dir, "asc-scoring-table-rows.tex"))
+writeLines(effective_latex, file.path(table_dir, "asc-effective-check.tex"))
+write_csv(asc_values, file.path(table_dir, "asc-values.csv"))
+write_csv(overall_asc, file.path(table_dir, "asc-overall.csv"))
+```
+
+## Deprecated plots
+
+Retained for reference; these chunks do not execute or overwrite images when rendering. Figure numbering above follows the proposed revised paper; the manuscript itself is unchanged.
+
+### Trips per resident by age and sex (former Figure 3)
+
+
+Residents with no trips are included. These activity schedules are an input to demand generation, so this is a description of the represented population, not independent predictive validation.
+
+```{r}
+#| eval: false
+#| echo: true
+#| code-fold: true
+figure_3 <- ggplot(filter(trip_rates, dataset == "baseline"), aes(age_group, trips_per_resident, fill = sex)) +
+  geom_col(position = "dodge", width = 0.8) + theme_minimal(base_size = 20) +
+  labs(x = "Age group", y = "Trips per resident", fill = "Sex") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+figure_3
+ggsave(file.path(figure_dir, "results_3_numtrips_age.png"), figure_3, width = 8, height = 6, dpi = 300, bg = "white")
+write_csv(trip_rates, file.path(table_dir, "trips-per-resident.csv"))
+```
+
+
+### Separate reference modal shares (former Figure 5)
+
+
+Survey shares are renormalised to the four modelled modes. Gender-specific shares come from the processed survey persons and activities, not from duplicating the overall calibration target.
+
+```{r}
+#| eval: false
+#| echo: true
+deprecated_reference_plot <- ggplot(filter(shares, dataset == "Survey"), aes(age_group, share, fill = main_mode)) +
+  geom_col(width = 0.85, position = position_stack(reverse = TRUE)) + facet_grid(rows = vars(sex)) +
+  scale_fill_manual(values = mode_cols, breaks = c("car", "ride", "walk", "bike"), guide = guide_legend(reverse = FALSE)) +
+  coord_cartesian(ylim = c(0, 1)) + theme_minimal(base_size = 22) +
+  labs(x = "Age Group", y = "Modal split (trip-based)", fill = "Mode") +
+  theme(panel.grid.major.x = element_blank(), panel.grid.minor = element_blank(),
+        legend.box.spacing = grid::unit(0.8, "cm"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+deprecated_reference_plot
+ggsave(file.path(figure_dir, "mode_share_ref.png"), deprecated_reference_plot, width = 8, height = 6, dpi = 300, bg = "white")
+```
+
+
+### Separate baseline modal shares (former Figure 6)
+
+
+```{r}
+#| eval: false
+#| echo: true
+#| code-fold: true
+figure_6 <- deprecated_reference_plot + filter(shares, dataset == "baseline")
+figure_6
+ggsave(file.path(figure_dir, "mode_share_base.png"), figure_6, width = 8, height = 6, dpi = 300, bg = "white")
+```
+
+
+### Separate policy modal shares (former Figure 7)
+
+
+```{r}
+#| eval: false
+#| echo: true
+#| code-fold: true
+figure_7 <- deprecated_reference_plot + filter(shares, dataset == "policy")
+figure_7
+ggsave(file.path(figure_dir, "mode_share_policy.png"), figure_7, width = 8, height = 6, dpi = 300, bg = "white")
+write_csv(shares, file.path(table_dir, "mode-shares-age-sex.csv"))
+```
+
+
+### Calibration comparison as lines
+
+
+This compares calibration fit to its targets; it is not independent validation. Shares are aggregated over sex using trip counts, not an unweighted mean of sex-specific shares.
+
+```{r}
+#| eval: false
+#| echo: true
+calibration_shares <- shares |> filter(dataset %in% c("overall", "age")) |>
+  group_by(dataset, age_group, main_mode) |> summarise(n = sum(n), .groups = "drop") |>
+  group_by(dataset, age_group) |> mutate(share = n / sum(n)) |> ungroup() |>
+  mutate(dataset = recode(dataset, overall = "Overall calibration", age = "Age calibration")) |>
+  bind_rows(age_target |> mutate(dataset = "Survey target")) |>
+  mutate(age_group = factor(age_group, age_groups),
+         dataset = factor(dataset, c("Survey target", "Overall calibration", "Age calibration")))
+calibration_plot <- ggplot(calibration_shares, aes(age_group, share, colour = dataset, group = dataset)) +
+  geom_line() + geom_point(size = 2) + facet_wrap(~main_mode, ncol = 2) +
+  scale_y_continuous(labels = scales::label_percent()) + theme_minimal(base_size = 16) +
+  labs(x = "Age group", y = "Trip share", colour = NULL) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
+calibration_plot
+ggsave(file.path(figure_dir, "calibration_age_comparison_lines.png"), calibration_plot, width = 10, height = 7, dpi = 300, bg = "white")
+write_csv(calibration_shares, file.path(table_dir, "calibration-age-comparison.csv"))
+```
+
+
+
+<!-- Archived live checkpoint: disabled after completion of the 300-iteration calibration.
+
+# Live checkpoint — 300-iteration calibration
+
+Run these blocks manually from top to bottom; they are independent of the paper-generation blocks above. They download snapshots and write diagnostics under `target/paper-ewgt/checkpoint-300it`, without replacing paper figures. A trial still running (including run-007) can contribute iteration histories, but only finished trials with complete person/trip outputs contribute age-specific fit. Re-run the download and checks for an updated snapshot.
+
+## Download the running experiment
+
+```{bash}
+#| eval: false
+checkpoint_remote="/net/ils/rehmann/matsim-gunma/2026-10-23a-calib-age-1pct-300it-v1.9/experiments/v1.9/results"
+checkpoint_local="/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.9/_develop/2026-10-23a-calib-age-1pct-300it-v1.9/experiments/v1.9/results"
+mkdir -p "$checkpoint_local"
+rsync -avm -e "ssh -T -o RemoteCommand=none -o RequestTTY=no" \
+  --include='/overall/' --include='/age/' --include='/comparison/' \
+  --exclude='/*/' --exclude='ITERS/' \
+  --include='*/' \
+  --include='selection.json' --include='selected-config.xml' \
+  --include='convergence.csv' --include='fit.csv' --include='trial-*.xml' \
+  --include='*.output_config.xml' --include='*.modestats.csv' --include='*.scorestats.csv' \
+  --include='*.output_persons.csv.gz' --include='*.output_trips.csv.gz' \
+  --exclude='*' \
+  "mc:$checkpoint_remote/" "$checkpoint_local/"
+```
+
+## Inventory and within-run stability
+
+The final 50 iterations are compared with the preceding 50. A mode-share mean shift below 1 percentage point is a screening aid, not a convergence certificate. Score changes are reported in utils and are compared **within** each run; scores across trials are not directly comparable because ASCs change. The mode-history files describe the full simulated population, whereas the age-specific calculations below exclude inbound commuters, as in the paper.
+
+```{r}
+#| eval: false
+library(tidyverse)
+library(xml2)
+checkpoint_results <- "/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.9/_develop/2026-10-23a-calib-age-1pct-300it-v1.9/experiments/v1.9/results"
+checkpoint_output <- "/Users/jakob/git/matsim-gunma/target/paper-ewgt/checkpoint-300it"
+dir.create(checkpoint_output, recursive = TRUE, showWarnings = FALSE)
+checkpoint_modes <- c("car", "ride", "walk", "bike")
+checkpoint_ages <- c("0-17", "18-29", "30-44", "45-64", "65-74", "75-84", "85+")
+checkpoint_expected <- 300L
+checkpoint_window <- 50L
+checkpoint_one <- function(folder, pattern) {
+  paths <- list.files(folder, pattern = pattern, full.names = TRUE)
+  if (length(paths) == 1L) paths else NA_character_
+}
+checkpoint_read_stats <- function(path) {
+  if (is.na(path)) return(tibble())
+  # A snapshot of a running file can contain an unfinished final row.
+  read_delim(path, delim = ";", col_types = cols(.default = col_double()),
+             show_col_types = FALSE, progress = FALSE) |>
+    filter(is.finite(iteration)) |> arrange(iteration) |> distinct(iteration, .keep_all = TRUE)
+}
+checkpoint_folders <- c(
+  list.dirs(file.path(checkpoint_results, "age"), recursive = FALSE, full.names = TRUE),
+  file.path(checkpoint_results, "comparison", c("baseline", "policy")))
+checkpoint_folders <- checkpoint_folders[dir.exists(checkpoint_folders) &
+  grepl("(run-[0-9]+|baseline|policy)$", checkpoint_folders)]
+if (!length(checkpoint_folders)) stop("No run snapshots found. Execute the download block first.")
+checkpoint_inventory <- tibble(folder = checkpoint_folders) |>
+  mutate(run = basename(folder), stage = basename(dirname(folder)),
+         config = map_chr(folder, checkpoint_one, "\\.output_config\\.xml$"),
+         mode_file = map_chr(folder, checkpoint_one, "\\.modestats\\.csv$"),
+         score_file = map_chr(folder, checkpoint_one, "\\.scorestats\\.csv$"),
+         persons_file = map_chr(folder, checkpoint_one, "\\.output_persons\\.csv\\.gz$"),
+         trips_file = map_chr(folder, checkpoint_one, "\\.output_trips\\.csv\\.gz$"),
+         mode_history = map(mode_file, checkpoint_read_stats),
+         score_history = map(score_file, checkpoint_read_stats),
+         last_iteration = map_int(mode_history, ~ if (nrow(.x)) as.integer(max(.x$iteration)) else NA_integer_),
+         expected_iteration = map_int(config, function(path) {
+           if (is.na(path)) return(checkpoint_expected)
+           as.integer(xml_attr(xml_find_first(read_xml(path, options = "NONET"),
+             "/config/module[@name='controller']/param[@name='lastIteration']"), "value"))
+         }),
+         finished = !is.na(last_iteration) & last_iteration >= expected_iteration,
+         fit_ready = finished & !is.na(persons_file) & !is.na(trips_file),
+         input_plans = map_chr(config, function(path) {
+           if (is.na(path)) return(NA_character_)
+           xml_attr(xml_find_first(read_xml(path, options = "NONET"),
+             "/config/module[@name='plans']/param[@name='inputPlansFile']"), "value")
+         })) |> arrange(stage, run)
+checkpoint_inventory |> select(stage, run, last_iteration, expected_iteration, finished, fit_ready, input_plans)
+
+checkpoint_mode_history <- map2_dfr(checkpoint_inventory$mode_history,
+  paste(checkpoint_inventory$stage, checkpoint_inventory$run, sep = "/"), function(x, run_id) {
+    if (!nrow(x)) return(tibble())
+    x |> pivot_longer(any_of(checkpoint_modes), names_to = "mode", values_to = "share") |>
+      filter(is.finite(share)) |> mutate(run_id = run_id)
+  })
+checkpoint_drift <- checkpoint_mode_history |> group_by(run_id, mode) |>
+  group_modify(~ {
+    # Require the full windows; a running trial may not have reached them yet.
+    end <- max(.x$iteration)
+    late <- filter(.x, iteration > end - checkpoint_window)
+    prior <- filter(.x, iteration > end - 2 * checkpoint_window, iteration <= end - checkpoint_window)
+    enough <- nrow(late) == checkpoint_window && nrow(prior) == checkpoint_window
+    tibble(last_iteration = end, full_windows = enough,
+      last_mean_percent = 100 * mean(late$share),
+      drift_pp = if (enough) 100 * (mean(late$share) - mean(prior$share)) else NA_real_,
+      last_range_pp = 100 * diff(range(late$share)))
+  }) |> ungroup()
+checkpoint_drift
+checkpoint_stability_plot <- ggplot(checkpoint_mode_history, aes(iteration, 100 * share, colour = mode)) +
+  geom_line() + facet_wrap(~run_id, ncol = 3) + theme_minimal() +
+  labs(x = "Iteration within run", y = "Full-population modal share (%)", colour = "Mode")
+checkpoint_stability_plot
+checkpoint_score_history <- map2_dfr(checkpoint_inventory$score_history,
+  paste(checkpoint_inventory$stage, checkpoint_inventory$run, sep = "/"), function(x, run_id) {
+    if (!nrow(x) || !"avg_executed" %in% names(x)) return(tibble())
+    x |> filter(is.finite(avg_executed)) |> mutate(run_id = run_id)
+  })
+if (nrow(checkpoint_score_history)) {
+  print(ggplot(checkpoint_score_history, aes(iteration, avg_executed)) + geom_line() +
+    facet_wrap(~run_id, scales = "free_y", ncol = 3) + theme_minimal() +
+    labs(x = "Iteration within run", y = "Mean executed score (utils)"))
+}
+write_csv(checkpoint_inventory |> select(-mode_history, -score_history), file.path(checkpoint_output, "inventory.csv"))
+write_csv(checkpoint_drift, file.path(checkpoint_output, "mode-drift.csv"))
+ggsave(file.path(checkpoint_output, "within-run-modal-stability.png"), checkpoint_stability_plot,
+       width = 12, height = max(5, 2.5 * ceiling(n_distinct(checkpoint_mode_history$run_id) / 3)), dpi = 150)
+```
+
+## Age fit, aggregate fit, and the previous 50-iteration discrepancy
+
+The age target is the same survey target used above. Aggregate shares are trip-weighted; the age MAE gives each of the 28 group–mode combinations equal weight. The “perfect age fit” column shows the aggregate implied by the target shares **using that run's age distribution of trips**, separating demographic weights from remaining within-age errors. An incomplete run is not interpreted as a finished calibration result.
+
+```{r}
+#| eval: false
+checkpoint_target <- read_csv("/Users/jakob/git/matsim-gunma/resources/mode_share_per_group_dist_ref.csv",
+  show_col_types = FALSE) |> filter(!is.na(age), age != "") |>
+  mutate(age_group = str_replace_all(age, " ", "")) |>
+  group_by(age_group, main_mode) |> summarise(target = sum(share), .groups = "drop") |>
+  group_by(age_group) |> mutate(target = target / sum(target)) |> ungroup()
+checkpoint_get_shares <- function(persons_file, trips_file, run_id) {
+  tryCatch({
+    p <- read_delim(persons_file, delim = ";", show_col_types = FALSE, progress = FALSE) |>
+      filter(!str_starts(person, "commuter")) |>
+      transmute(person, age_group = as.character(cut(age, c(0, 18, 30, 45, 65, 75, 85, Inf),
+                                                    right = FALSE, labels = checkpoint_ages)))
+    t <- read_delim(trips_file, delim = ";", show_col_types = FALSE, progress = FALSE) |>
+      filter(!str_starts(person, "commuter"))
+    stopifnot(!anyDuplicated(p$person), all(t$person %in% p$person),
+              all(t$main_mode %in% checkpoint_modes), !anyNA(p$age_group))
+    t |> left_join(p, by = "person") |> count(age_group, main_mode) |>
+      complete(age_group = checkpoint_ages, main_mode = checkpoint_modes, fill = list(n = 0)) |>
+      group_by(age_group) |> mutate(age_trips = sum(n), share = n / age_trips) |> ungroup() |>
+      mutate(run_id = run_id)
+  }, error = function(e) {
+    warning("Skipping incomplete/unreadable snapshot ", run_id, ": ", conditionMessage(e))
+    tibble()
+  })
+}
+checkpoint_ready <- checkpoint_inventory |> filter(fit_ready)
+checkpoint_shares <- pmap_dfr(checkpoint_ready |> select(persons_file, trips_file) |>
+  mutate(run_id = paste(checkpoint_ready$stage, checkpoint_ready$run, sep = "/")), checkpoint_get_shares)
+if (!nrow(checkpoint_shares)) {
+  message("No completed person/trip snapshots yet. Inspect the running histories above and download again later.")
+} else {
+  checkpoint_errors <- checkpoint_shares |> left_join(checkpoint_target, by = c("age_group", "main_mode"))
+  stopifnot(!anyNA(checkpoint_errors$share), !anyNA(checkpoint_errors$target))
+  checkpoint_fit <- checkpoint_errors |> group_by(run_id) |>
+    summarise(age_mae_pp = 100 * mean(abs(share - target)), .groups = "drop")
+  print(checkpoint_fit)
+  print(ggplot(checkpoint_fit |> filter(str_starts(run_id, "age/")), aes(run_id, age_mae_pp)) +
+    geom_point() + geom_line(aes(group = 1)) + theme_minimal() +
+    labs(x = "Completed age-calibration trial", y = "Age-specific MAE (percentage points)") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)))
+  checkpoint_aggregate <- checkpoint_errors |> group_by(run_id) |>
+    mutate(total_trips = sum(n)) |> group_by(run_id, main_mode) |>
+    summarise(simulated_percent = 100 * sum(n) / first(total_trips),
+      perfect_age_fit_percent = 100 * sum(age_trips * target) / first(total_trips), .groups = "drop")
+  print(checkpoint_aggregate)
+  # Use the selected trial, or the provisional best completed trial during calibration.
+  age_fit <- checkpoint_fit |> filter(str_starts(run_id, "age/")) |> arrange(age_mae_pp, run_id)
+  selection_path <- file.path(checkpoint_results, "age", "selection.json")
+  candidate <- if (file.exists(selection_path)) {
+    sprintf("age/run-%03d", jsonlite::fromJSON(selection_path)$trial)
+  } else if (nrow(age_fit)) age_fit$run_id[1] else NA_character_
+  if (!is.na(candidate) && "comparison/baseline" %in% checkpoint_fit$run_id &&
+      candidate %in% checkpoint_fit$run_id) {
+    config_for <- function(id) checkpoint_inventory$config[
+      paste(checkpoint_inventory$stage, checkpoint_inventory$run, sep = "/") == id]
+    scoring_signature <- function(path) {
+      nodes <- xml_find_all(read_xml(path, options = "NONET"),
+        "/config/module[@name='scoring' or @name='advancedScoring']")
+      stopifnot(length(nodes) == 2)
+      gsub(">[[:space:]]+<", "><", as.character(nodes))
+    }
+    same_scoring <- identical(scoring_signature(config_for(candidate)),
+                              scoring_signature(config_for("comparison/baseline")))
+    print(tibble(candidate, selected = file.exists(selection_path), same_scoring,
+      baseline_minus_candidate_age_mae_pp =
+        checkpoint_fit$age_mae_pp[checkpoint_fit$run_id == "comparison/baseline"] -
+        checkpoint_fit$age_mae_pp[checkpoint_fit$run_id == candidate]))
+    if (!same_scoring) warning("Candidate and baseline scoring differ; this is not a pure starting-plan/convergence comparison.")
+  } else message("Fresh-start baseline comparison pending; warm-started trials alone cannot resolve the earlier discrepancy.")
+  checkpoint_age_weights <- checkpoint_shares |> distinct(run_id, age_group, age_trips) |>
+    group_by(run_id) |> mutate(trip_weight_percent = 100 * age_trips / sum(age_trips)) |> ungroup()
+  print(checkpoint_age_weights)
+  checkpoint_age_plot <- checkpoint_errors |> pivot_longer(c(share, target), names_to = "source", values_to = "value") |>
+    ggplot(aes(age_group, 100 * value, colour = source, group = source)) + geom_point() + geom_line() +
+    facet_grid(run_id ~ main_mode) + theme_minimal() +
+    labs(x = "Age group", y = "Resident trip modal share (%)", colour = NULL) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  print(checkpoint_age_plot)
+  write_csv(checkpoint_fit, file.path(checkpoint_output, "age-fit.csv"))
+  write_csv(checkpoint_aggregate, file.path(checkpoint_output, "aggregate-fit.csv"))
+  write_csv(checkpoint_age_weights, file.path(checkpoint_output, "age-trip-weights.csv"))
+}
+```
+
+**How to read the checkpoint:** Falling age MAE and flat late-iteration mode/score histories are promising evidence. Successive trials use different parameters, so agreement between their outputs alone does not establish convergence. The previous selected 50-iteration age trial had MAE 0.46 pp, but the separately restarted policy baseline had MAE 3.34 pp; they had identical scoring parameters and different starting plans. Once the new `comparison/baseline` is available, compare its age MAE and aggregate shares with the selected age trial, confirm matching scoring parameters, and inspect their input-plan paths in the inventory. Until then, this checkpoint **cannot establish that the fresh-start discrepancy is resolved**, even if run-007 looks stable. Do not substitute a calibration trial for the paired policy baseline when calculating policy effects.
+
+-->
+
+# Download the published SimWrapper dashboard folders
+
+Run this block manually after cluster dashboard post-processing finishes. It copies the complete `analysis/` tree (including network, shape, and reference assets), dashboard YAMLs, optional SimWrapper configuration, and the root configuration/trip/statistics files used by the v1.8 dashboards. Raw events, plans, networks, and `ITERS/` are not needed to view these already-generated dashboards. Existing destination files are updated without deleting unrelated files. The experiment snapshots remain in `_develop/`; these are separate dashboard copies.
+
+```{bash}
+#| eval: false
+#| echo: true
+dashboard_experiment="2026-10-23a-calib-age-1pct-300it-v1.9"
+dashboard_remote="/net/ils/rehmann/matsim-gunma/$dashboard_experiment/experiments/v1.9/results/comparison"
+dashboard_local="/Users/jakob/git/public-svn/matsim/scenarios/countries/jp/gunma/gunma-v1.9"
+for dashboard_case in baseline policy; do
+  if [[ "$dashboard_case" == baseline ]]; then
+    dashboard_destination="$dashboard_local/output-1pct-base"
+  else
+    dashboard_destination="$dashboard_local/output-1pct-policy_safety"
+  fi
+  mkdir -p "$dashboard_destination"
+  rsync -avm -e "ssh -T -o RemoteCommand=none -o RequestTTY=no" \
+    --include='/analysis/***' \
+    --include='/dashboard-*.yaml' --include='/dashboard-*.yml' \
+    --include='/simwrapper-config.yaml' --include='/simwrapper-config.yml' \
+    --include='/*.output_config.xml' --include='/output_config.xml' \
+    --include='/*.output_trips.csv.gz' --include='/output_trips.csv.gz' \
+    --include='/*.modestats.csv' --include='/modestats.csv' \
+    --include='/*.scorestats.csv' --include='/scorestats.csv' \
+    --exclude='*' \
+    "mc:$dashboard_remote/$dashboard_case/" "$dashboard_destination/" || exit 1
+done
+```

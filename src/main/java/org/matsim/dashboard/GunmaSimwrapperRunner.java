@@ -1,5 +1,9 @@
 package org.matsim.dashboard;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.TransportMode;
@@ -7,19 +11,22 @@ import org.matsim.application.ApplicationUtils;
 import org.matsim.application.MATSimAppCommand;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
-import org.matsim.run.GunmaBaseScenario;
 import org.matsim.simwrapper.SimWrapper;
 import org.matsim.simwrapper.SimWrapperConfigGroup;
 import org.matsim.simwrapper.dashboard.*;
 import picocli.CommandLine;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 @CommandLine.Command(
 	name = "gunma-dashboard",
+	mixinStandardHelpOptions = true,
 	description = "Run standalone SimWrapper post-processing for existing run output."
 )
 
@@ -32,6 +39,13 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 	@CommandLine.Parameters(arity = "1..*", description = "Path to run output directories for which the dashboards is to be generated.")
 	private List<Path> inputPaths;
 
+	@CommandLine.Option(names = "--counts", defaultValue = "input/v1.8/gunma-v1.8-counts-jartic.xml.gz",
+		description = "Observed traffic counts (v1.9 reuses the v1.8 input data).")
+	private Path countsPath;
+
+	@CommandLine.Option(names = "--generate-only", description = "Generate dashboard definitions without running analyses.")
+	private boolean generateOnly;
+
 	private GunmaSimwrapperRunner() {
 	}
 
@@ -42,16 +56,30 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 	@Override
 	public Integer call() {
 
+		if (!Files.isRegularFile(countsPath)) {
+			throw new IllegalArgumentException("Missing observed counts: " + countsPath.toAbsolutePath());
+		}
+		// Check both cases before writing either dashboard set. Heavy files stay on the cluster.
+		for (Path runDirectory : inputPaths) {
+			ApplicationUtils.matchInput("config.xml", runDirectory);
+			if (!generateOnly) {
+				for (String input : List.of("events.xml", "network.xml", "plans.xml", "activities.csv",
+					"persons.csv", "trips.csv", "logfile.log", "modestats.csv", "scorestats.csv")) {
+					ApplicationUtils.matchInput(input, runDirectory);
+				}
+			}
+		}
+
 		for (Path runDirectory : inputPaths) {
 			log.info("Creating dashboards for {}", runDirectory);
 
 			Path configPath = ApplicationUtils.matchInput("config.xml", runDirectory);
 			Config config = ConfigUtils.loadConfig(configPath.toString());
-			SimWrapper sw = SimWrapper.create(config);
-
-
-
 			SimWrapperConfigGroup simwrapperCfg = ConfigUtils.addOrGetModule(config, SimWrapperConfigGroup.class);
+			simwrapperCfg.setSampleSize(config.qsim().getFlowCapFactor());
+			log.info("Post-processing {} with sample size {} and counts {}", runDirectory,
+				simwrapperCfg.getSampleSize(), countsPath.toAbsolutePath());
+			SimWrapper sw = SimWrapper.create(config);
 
 
 			// Facilities Dashboard
@@ -126,7 +154,7 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 
 			// Traffic Counts (based on counts from MLIT)
 			TrafficCountsDashboard trafficCountsDashboard = new TrafficCountsDashboard();
-			trafficCountsDashboard.withCountsPath("input/v" + GunmaBaseScenario.VERSION + "/gunma-v" + GunmaBaseScenario.VERSION + "-counts-jartic.xml.gz");
+			trafficCountsDashboard.withCountsPath(countsPath.toAbsolutePath().toString());
 			trafficCountsDashboard.withModes(TransportMode.car, Set.of(TransportMode.car));
 
 			OverviewDashboard overview = new OverviewDashboard();
@@ -143,7 +171,30 @@ public final class GunmaSimwrapperRunner implements MATSimAppCommand {
 				//replace existing dashboards
 				boolean append = false;
 				sw.generate(runDirectory, append);
-				sw.run(runDirectory);
+				if (!generateOnly) {
+					sw.run(runDirectory);
+					// SimWrapper logs some analysis errors instead of propagating them. Check every
+					// generated dashboard's data dependencies before declaring the run upload-ready.
+					ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+					List<String> missing = new ArrayList<>();
+					try (var dashboards = Files.newDirectoryStream(runDirectory, "dashboard-*.yaml")) {
+						for (Path dashboard : dashboards) {
+							ArrayDeque<JsonNode> nodes = new ArrayDeque<>();
+							nodes.add(mapper.readTree(dashboard.toFile()));
+							while (!nodes.isEmpty()) {
+								JsonNode node = nodes.remove();
+								if (node.isContainerNode()) node.forEach(nodes::add);
+								else if (node.isTextual() && node.asText().startsWith("analysis/")
+									&& !Files.isRegularFile(runDirectory.resolve(node.asText()))) {
+									missing.add(node.asText());
+								}
+							}
+						}
+					}
+					if (!missing.isEmpty()) {
+						throw new IOException("Incomplete dashboard data in " + runDirectory + ": " + missing);
+					}
+				}
 			} catch (IOException e) {
 				throw new RuntimeException(e);
 			}
